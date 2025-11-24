@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SharePoint + IA - Resumo de Documentos</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1 class="logo">
+                    <span class="icon">📄</span>
+                    SharePoint AI
+                </h1>
+                <div class="user-info" id="userInfo" style="display: none;">
+                    <span class="user-name" id="userName"></span>
+                    <button class="btn btn-secondary btn-sm" id="logoutBtn">Sair</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+
+            <!-- Login Section -->
+            <section class="section" id="loginSection">
+                <div class="card login-card">
+                    <div class="card-body text-center">
+                        <div class="login-icon">🔐</div>
+                        <h2>Bem-vindo ao SharePoint AI</h2>
+                        <p class="text-muted">
+                            Conecte-se ao seu SharePoint e use IA para resumir documentos automaticamente.
+                        </p>
+                        <button class="btn btn-primary btn-lg" id="loginBtn">
+                            <span class="btn-icon">🚀</span>
+                            Conectar com Microsoft
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Documents Section -->
+            <section class="section" id="documentsSection" style="display: none;">
+
+                <!-- Info Card -->
+                <div class="info-card">
+                    <div class="info-icon">ℹ️</div>
+                    <div class="info-content">
+                        <h3>Como usar:</h3>
+                        <ol>
+                            <li>Selecione um ou mais documentos da lista abaixo</li>
+                            <li>Clique em "Resumir Documentos"</li>
+                            <li>Aguarde enquanto a IA processa e resume os arquivos</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- Documents List -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📁 Documentos do SharePoint</h3>
+                        <button class="btn btn-secondary" id="refreshBtn">
+                            <span class="btn-icon">🔄</span>
+                            Atualizar
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <!-- Loading -->
+                        <div class="loading" id="documentsLoading">
+                            <div class="spinner"></div>
+                            <p>Carregando documentos...</p>
+                        </div>
+
+                        <!-- Documents Table -->
+                        <div id="documentsTable" style="display: none;">
+                            <div class="table-actions">
+                                <button class="btn btn-primary" id="summarizeBtn" disabled>
+                                    <span class="btn-icon">🤖</span>
+                                    Resumir Documentos Selecionados
+                                </button>
+                                <span class="selected-count" id="selectedCount">0 documentos selecionados</span>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th width="50">
+                                                <input type="checkbox" id="selectAll">
+                                            </th>
+                                            <th>Nome</th>
+                                            <th>Tipo</th>
+                                            <th>Tamanho</th>
+                                            <th>Modificado</th>
+                                            <th>Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="documentsTableBody">
+                                        <!-- Documentos serão inseridos aqui via JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- No Documents Message -->
+                        <div class="empty-state" id="noDocuments" style="display: none;">
+                            <div class="empty-icon">📭</div>
+                            <h3>Nenhum documento encontrado</h3>
+                            <p>Não foram encontrados documentos compatíveis no seu SharePoint.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summaries Section -->
+                <div class="card" id="summariesSection" style="display: none;">
+                    <div class="card-header">
+                        <h3>📝 Resumos Gerados</h3>
+                    </div>
+                    <div class="card-body">
+                        <!-- Processing -->
+                        <div class="loading" id="summariesLoading" style="display: none;">
+                            <div class="spinner"></div>
+                            <p>Processando documentos com IA...</p>
+                            <small class="text-muted">Isso pode levar alguns segundos</small>
+                        </div>
+
+                        <!-- Summaries Content -->
+                        <div id="summariesContent"></div>
+                    </div>
+                </div>
+
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 SharePoint AI Integration - Powered by Claude AI</p>
+        </div>
+    </footer>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
