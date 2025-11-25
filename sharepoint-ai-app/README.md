@@ -153,7 +153,7 @@ SHAREPOINT_SITE_URL=https://fiofortei9automacaogroup.sharepoint.com/sites/Docume
 
 # Claude AI
 CLAUDE_API_KEY=sk-ant-api03-ABC123def456GHI789jkl012MNO345pqr678STU901vwx234YZA567bcd890
-CLAUDE_MODEL=claude-3-5-sonnet-20241022
+CLAUDE_MODEL=claude-sonnet-4-5-20250929
 
 # Flask
 SECRET_KEY=sua-chave-secreta-aleatoria-aqui

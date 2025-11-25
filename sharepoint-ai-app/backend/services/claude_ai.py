@@ -14,7 +14,7 @@ import openpyxl
 class ClaudeAIService:
     """Serviço para processamento de documentos com Claude AI"""
 
-    def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-5-20250929"):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 

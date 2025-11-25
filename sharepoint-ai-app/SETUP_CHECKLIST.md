@@ -150,7 +150,7 @@ python app.py
   🚀 SharePoint + Claude AI Integration
   ✓ Servidor rodando em: http://localhost:5000
   ✓ SharePoint configurado: https://fiofortei9automacaogroup.sharepoint.com/sites/Documentos
-  ✓ Modelo Claude: claude-3-5-sonnet-20241022
+  ✓ Modelo Claude: claude-sonnet-4-5-20250929
   ```
 
 ---
@@ -167,7 +167,7 @@ Status atual:
 ✅ MICROSOFT_REDIRECT_URI=http://localhost:5000/auth/callback
 ✅ SHAREPOINT_SITE_URL=https://fiofortei9automacaogroup.sharepoint.com/sites/Documentos
 ❌ CLAUDE_API_KEY=PREENCHA_COM_SUA_CHAVE_CLAUDE
-✅ CLAUDE_MODEL=claude-3-5-sonnet-20241022
+✅ CLAUDE_MODEL=claude-sonnet-4-5-20250929
 ✅ SECRET_KEY=sharepoint-ai-integration-dev-key-2024
 ✅ FLASK_ENV=development
 ```
