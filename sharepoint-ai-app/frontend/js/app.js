@@ -13,6 +13,7 @@ const AppState = {
     selectedDocuments: [],
     summaries: [],
     currentPath: '',
+    currentWebUrl: '',
     navigationHistory: []
 };
 
@@ -120,9 +121,35 @@ function setupEventListeners() {
     document.getElementById('selectAll').addEventListener('click', handleSelectAll);
     document.getElementById('summarizeBtn').addEventListener('click', handleSummarize);
 
+    // Navigation
+    document.getElementById('backBtn').addEventListener('click', handleBack);
+    document.getElementById('copyPathBtn').addEventListener('click', handleCopyPath);
+    document.getElementById('openInSharePointBtn').addEventListener('click', handleOpenInSharePoint);
+    document.getElementById('pathInput').addEventListener('click', handleCopyPath);
+
     // Search
     document.getElementById('searchInput').addEventListener('input', handleSearch);
-    document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
+    document.getElementById('searchInput').addEventListener('keydown', handleSearch);
+
+    // Chat
+    const chatSend = document.getElementById('chatSend');
+    const chatInput = document.getElementById('chatInput');
+
+    chatSend.addEventListener('click', () => sendChatMessage());
+
+    // Enter to send (Shift+Enter for new line)
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    // Auto-resize textarea
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    });
 }
 
 // ============================================
@@ -209,23 +236,27 @@ async function handleLogout() {
 // ============================================
 
 function showLoginSection() {
-    document.getElementById('loginSection').style.display = 'block';
-    document.getElementById('documentsSection').style.display = 'none';
-    document.getElementById('userInfo').style.display = 'none';
+    document.getElementById('loginSection').style.display = 'flex';
+    document.getElementById('mainApp').style.display = 'none';
 }
 
 function showDocumentsSection() {
     document.getElementById('loginSection').style.display = 'none';
-    document.getElementById('documentsSection').style.display = 'block';
-    document.getElementById('userInfo').style.display = 'flex';
+    document.getElementById('mainApp').style.display = 'flex';
+
+    // Atualiza informações do usuário
     document.getElementById('userName').textContent = AppState.user.name;
+
+    // Cria avatar com iniciais
+    const initials = AppState.user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    document.getElementById('userAvatar').textContent = initials;
 }
 
 // ============================================
 // Documentos
 // ============================================
 
-async function loadDocuments(folderPath = null, forceRefresh = false) {
+async function loadDocuments(folderPath = null, forceRefresh = false, skipHistory = false) {
     const loadingEl = document.getElementById('documentsLoading');
     const tableEl = document.getElementById('documentsTable');
     const noDocsEl = document.getElementById('noDocuments');
@@ -243,6 +274,7 @@ async function loadDocuments(folderPath = null, forceRefresh = false) {
             tableEl.style.display = 'block';
             renderDocumentsTable(cachedData.documents);
             renderBreadcrumb(AppState.currentPath);
+            updatePathBar(AppState.currentPath, cachedData.folder_name, cachedData.web_url);
 
             const message = `${cachedData.folders_count} pastas, ${cachedData.files_count} arquivos (cache)`;
             showToast(message, 'success');
@@ -251,8 +283,14 @@ async function loadDocuments(folderPath = null, forceRefresh = false) {
     }
 
     // Mostra loading
-    loadingEl.style.display = 'block';
-    loadingEl.innerHTML = '<div class="spinner"></div><p>Carregando todos os documentos e bibliotecas do SharePoint...<br><small>Isso pode levar alguns segundos se houver muitos arquivos</small></p>';
+    loadingEl.style.display = 'flex';
+    loadingEl.innerHTML = `
+        <div class="spinner mb-4"></div>
+        <p class="text-gray-600 dark:text-gray-400 text-center">
+            Carregando todos os documentos e bibliotecas do SharePoint...<br>
+            <small class="text-gray-500 dark:text-gray-500">Isso pode levar alguns segundos se houver muitos arquivos</small>
+        </p>
+    `;
     tableEl.style.display = 'none';
     noDocsEl.style.display = 'none';
 
@@ -289,7 +327,10 @@ async function loadDocuments(folderPath = null, forceRefresh = false) {
         CacheManager.set(cacheKey, data);
 
         // Restaura loading HTML e esconde
-        loadingEl.innerHTML = '<div class="spinner"></div><p>Carregando documentos...</p>';
+        loadingEl.innerHTML = `
+            <div class="spinner mb-4"></div>
+            <p class="text-gray-600 dark:text-gray-400">Carregando documentos...</p>
+        `;
         loadingEl.style.display = 'none';
 
         if (data.documents.length === 0) {
@@ -298,6 +339,7 @@ async function loadDocuments(folderPath = null, forceRefresh = false) {
             tableEl.style.display = 'block';
             renderDocumentsTable(data.documents);
             renderBreadcrumb(AppState.currentPath);
+            updatePathBar(AppState.currentPath, data.folder_name, data.web_url);
 
             const cacheIndicator = data.from_cache ? ' (cache servidor)' : '';
             const message = `${data.folders_count} pastas, ${data.files_count} arquivos${cacheIndicator}`;
@@ -305,7 +347,10 @@ async function loadDocuments(folderPath = null, forceRefresh = false) {
         }
     } catch (error) {
         console.error('Erro ao carregar documentos:', error);
-        loadingEl.innerHTML = '<div class="spinner"></div><p>Carregando documentos...</p>';
+        loadingEl.innerHTML = `
+            <div class="spinner mb-4"></div>
+            <p class="text-gray-600 dark:text-gray-400">Carregando documentos...</p>
+        `;
         loadingEl.style.display = 'none';
         showToast('Erro ao carregar documentos do SharePoint', 'error');
     }
@@ -320,58 +365,63 @@ function renderDocumentsTable(documents) {
         row.setAttribute('data-doc-name', doc.name.toLowerCase());
         row.setAttribute('data-is-folder', doc.isFolder ? 'true' : 'false');
 
+        row.className = 'border-b border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800/50';
+
         if (doc.isFolder) {
             // Renderiza linha de pasta
-            row.classList.add('folder-row');
             const folderPath = doc.folderPath || doc.name;
             const isDrive = doc.isDrive || false;
-            const folderIcon = isDrive ? '📚' : '📁';
+            const folderIcon = isDrive ? 'folder_special' : 'folder';
+            const iconColor = isDrive ? 'text-yellow-500' : 'text-blue-500';
 
             row.innerHTML = `
-                <td>
-                    <span class="folder-icon">${folderIcon}</span>
+                <td class="p-3">
+                    <span class="material-symbols-outlined ${iconColor} text-2xl">${folderIcon}</span>
                 </td>
-                <td>
-                    <strong class="folder-name" data-folder-path="${folderPath}" style="cursor: pointer; color: var(--primary-color);">
+                <td class="p-3">
+                    <strong class="folder-name cursor-pointer text-primary-600 dark:text-primary-400 hover:underline" data-folder-path="${folderPath}">
                         ${doc.name}
                     </strong>
-                    ${doc.driveName && !isDrive ? `<br><small class="text-muted">📚 ${doc.driveName}</small>` : ''}
+                    ${doc.driveName && !isDrive ? `<br><small class="text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1"><span class="material-symbols-outlined text-xs">folder_special</span>${doc.driveName}</small>` : ''}
                 </td>
-                <td>
-                    <span class="file-type-badge badge-folder">
-                        ${isDrive ? 'Biblioteca' : 'Pasta'}
-                    </span>
+                <td class="p-3 text-gray-600 dark:text-gray-400">
+                    ${doc.childCount} itens
                 </td>
-                <td><span class="text-muted">${doc.childCount} itens</span></td>
-                <td>${formatDate(doc.lastModified)}</td>
-                <td>
-                    <a href="${doc.webUrl}" target="_blank" class="btn btn-sm btn-secondary">
+                <td class="p-3 text-gray-600 dark:text-gray-400">
+                    ${formatDate(doc.lastModified)}
+                </td>
+                <td class="p-3 text-right">
+                    <a href="${doc.webUrl}" target="_blank" class="px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600">
                         Abrir
                     </a>
                 </td>
             `;
         } else {
             // Renderiza linha de arquivo
+            const fileIcon = getFileMaterialIcon(doc.type);
+            const iconColor = getFileIconColor(doc.type);
+
             row.innerHTML = `
-                <td>
-                    <input type="checkbox" class="doc-checkbox" data-doc-id="${doc.id}"
+                <td class="p-3">
+                    <input type="checkbox" class="doc-checkbox rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                           data-doc-id="${doc.id}"
                            data-doc-name="${doc.name}"
                            data-doc-type="${doc.type}"
                            data-drive-id="${doc.driveId}">
                 </td>
-                <td>
-                    <strong>${doc.name}</strong>
-                    ${doc.driveName ? `<br><small class="text-muted">📚 ${doc.driveName}</small>` : ''}
+                <td class="p-3">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined ${iconColor} text-2xl">${fileIcon}</span>
+                        <div>
+                            <strong class="text-gray-900 dark:text-gray-100">${doc.name}</strong>
+                            ${doc.driveName ? `<br><small class="text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1"><span class="material-symbols-outlined text-xs">folder_special</span>${doc.driveName}</small>` : ''}
+                        </div>
+                    </div>
                 </td>
-                <td>
-                    <span class="file-type-badge badge-${doc.type}">
-                        ${getFileTypeLabel(doc.type)}
-                    </span>
-                </td>
-                <td>${formatFileSize(doc.size)}</td>
-                <td>${formatDate(doc.lastModified)}</td>
-                <td>
-                    <a href="${doc.webUrl}" target="_blank" class="btn btn-sm btn-secondary">
+                <td class="p-3 text-gray-600 dark:text-gray-400">${formatDate(doc.lastModified)}</td>
+                <td class="p-3 text-gray-600 dark:text-gray-400">${formatFileSize(doc.size)}</td>
+                <td class="p-3 text-right">
+                    <a href="${doc.webUrl}" target="_blank" class="px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600">
                         Abrir
                     </a>
                 </td>
@@ -393,14 +443,91 @@ function renderDocumentsTable(documents) {
             navigateToFolder(folderPath);
         });
     });
-
-    // Atualiza contador de pesquisa
-    updateSearchResults();
 }
 
 function navigateToFolder(folderPath) {
+    // Adiciona ao histórico de navegação antes de navegar
+    if (AppState.currentPath !== folderPath) {
+        AppState.navigationHistory.push(AppState.currentPath);
+        updateBackButton();
+    }
+
     // Navega para a pasta usando o caminho fornecido pelo backend
     loadDocuments(folderPath);
+}
+
+function handleBack() {
+    if (AppState.navigationHistory.length > 0) {
+        const previousPath = AppState.navigationHistory.pop();
+        updateBackButton();
+
+        // Carrega documentos sem adicionar ao histórico
+        loadDocuments(previousPath, false, true);
+    }
+}
+
+function updateBackButton() {
+    const backBtn = document.getElementById('backBtn');
+    backBtn.disabled = AppState.navigationHistory.length === 0;
+}
+
+function updatePathBar(currentPath, folderName = null, webUrl = null) {
+    const pathInput = document.getElementById('pathInput');
+
+    // Salva a URL do SharePoint
+    if (webUrl) {
+        AppState.currentWebUrl = webUrl;
+    }
+
+    // Atualiza o campo de caminho
+    if (!currentPath) {
+        pathInput.value = '/';
+    } else {
+        // Extrai o nome legível do caminho
+        if (currentPath.startsWith('drive:')) {
+            const parts = currentPath.substring(6).split('/');
+            const pathParts = parts.slice(1); // Remove o drive ID
+
+            if (pathParts.length === 0) {
+                pathInput.value = folderName || '/Biblioteca';
+            } else {
+                pathInput.value = '/' + pathParts.join('/');
+            }
+        } else {
+            pathInput.value = currentPath;
+        }
+    }
+}
+
+async function handleCopyPath() {
+    const pathInput = document.getElementById('pathInput');
+    const path = pathInput.value;
+
+    try {
+        await navigator.clipboard.writeText(path);
+
+        // Feedback visual
+        pathInput.select();
+        showToast('Caminho copiado para a área de transferência', 'success');
+
+        // Remove seleção após um tempo
+        setTimeout(() => {
+            window.getSelection().removeAllRanges();
+        }, 500);
+    } catch (err) {
+        console.error('Erro ao copiar:', err);
+        showToast('Erro ao copiar caminho', 'error');
+    }
+}
+
+function handleOpenInSharePoint() {
+    if (AppState.currentWebUrl) {
+        window.open(AppState.currentWebUrl, '_blank');
+    } else {
+        // URL base do SharePoint
+        const baseUrl = 'https://fiofortei9automacaogroup.sharepoint.com/sites/Documentos';
+        window.open(baseUrl, '_blank');
+    }
 }
 
 function renderBreadcrumb(currentPath) {
@@ -416,17 +543,22 @@ function renderBreadcrumb(currentPath) {
 
     breadcrumbEl.innerHTML = '';
 
+    // Limpa breadcrumb e adiciona home
+    breadcrumbEl.innerHTML = '';
+
     // Botão Home
-    const homeLink = document.createElement('span');
-    homeLink.className = 'breadcrumb-item';
-    homeLink.innerHTML = '<span class="breadcrumb-link">🏠 Raiz</span>';
-    homeLink.style.cursor = 'pointer';
-    homeLink.addEventListener('click', () => loadDocuments(null));
-    breadcrumbEl.appendChild(homeLink);
+    const homeSpan = document.createElement('span');
+    homeSpan.className = 'cursor-pointer hover:text-primary-600';
+    homeSpan.innerHTML = '<span class="material-symbols-outlined text-xl">home</span>';
+    homeSpan.addEventListener('click', () => loadDocuments(null));
+    breadcrumbEl.appendChild(homeSpan);
 
     // Se não há caminho, para por aqui
     if (!currentPath) {
-        homeLink.classList.add('breadcrumb-active');
+        const rootText = document.createElement('span');
+        rootText.className = 'text-primary-600 font-semibold';
+        rootText.innerHTML = '<span>/</span><span>Raiz</span>';
+        breadcrumbEl.appendChild(rootText);
         return;
     }
 
@@ -445,20 +577,17 @@ function renderBreadcrumb(currentPath) {
 
     // Se temos um drive, adiciona link para a raiz do drive
     if (driveId) {
-        const separator = document.createElement('span');
-        separator.className = 'breadcrumb-separator';
-        separator.textContent = '/';
-        breadcrumbEl.appendChild(separator);
+        breadcrumbEl.innerHTML += ' <span>/</span> ';
 
         const driveLink = document.createElement('span');
-        driveLink.className = 'breadcrumb-item';
 
         // Se não há subpastas, este é o item ativo
         if (pathParts.length === 0) {
-            driveLink.innerHTML = `<span class="breadcrumb-active">📚 Biblioteca</span>`;
+            driveLink.className = 'text-primary-600 font-semibold';
+            driveLink.textContent = 'Biblioteca';
         } else {
-            driveLink.innerHTML = `<span class="breadcrumb-link">📚 Biblioteca</span>`;
-            driveLink.style.cursor = 'pointer';
+            driveLink.className = 'cursor-pointer hover:text-primary-600';
+            driveLink.textContent = 'Biblioteca';
             driveLink.addEventListener('click', () => loadDocuments(`drive:${driveId}`));
         }
 
@@ -467,26 +596,22 @@ function renderBreadcrumb(currentPath) {
 
     // Adiciona as subpastas
     pathParts.forEach((part, index) => {
-        // Adiciona separador
-        const separator = document.createElement('span');
-        separator.className = 'breadcrumb-separator';
-        separator.textContent = '/';
-        breadcrumbEl.appendChild(separator);
+        breadcrumbEl.innerHTML += ' <span>/</span> ';
 
         // Adiciona link da pasta
         const link = document.createElement('span');
-        link.className = 'breadcrumb-item';
 
         // Constrói o caminho até esta pasta
         const pathToHere = `drive:${driveId}/${pathParts.slice(0, index + 1).join('/')}`;
 
         if (index === pathParts.length - 1) {
             // Última pasta (atual) - não é clicável
-            link.innerHTML = `<span class="breadcrumb-active">${part}</span>`;
+            link.className = 'text-primary-600 font-semibold';
+            link.textContent = part;
         } else {
             // Pasta intermediária - é clicável
-            link.innerHTML = `<span class="breadcrumb-link">${part}</span>`;
-            link.style.cursor = 'pointer';
+            link.className = 'cursor-pointer hover:text-primary-600';
+            link.textContent = part;
             link.addEventListener('click', () => loadDocuments(pathToHere));
         }
 
@@ -516,11 +641,16 @@ function updateSelectedDocuments() {
     }));
 
     // Atualiza UI
-    document.getElementById('selectedCount').textContent =
-        `${AppState.selectedDocuments.length} documentos selecionados`;
+    const count = AppState.selectedDocuments.length;
+    document.getElementById('selectedCount').textContent = `${count} selecionado${count !== 1 ? 's' : ''}`;
 
-    document.getElementById('summarizeBtn').disabled =
-        AppState.selectedDocuments.length === 0;
+    const summarizeBtn = document.getElementById('summarizeBtn');
+    summarizeBtn.disabled = count === 0;
+
+    const summarizeBtnText = document.getElementById('summarizeBtnText');
+    if (summarizeBtnText) {
+        summarizeBtnText.textContent = count > 0 ? `Resumir ${count} Documento${count !== 1 ? 's' : ''}` : 'Resumir Documentos';
+    }
 }
 
 // ============================================
@@ -661,19 +791,54 @@ function renderSummaries(summaries, consolidatedSummary) {
 // Pesquisa de Documentos
 // ============================================
 
+// Variável para controlar timeout de busca
+let searchTimeout = null;
+let isGlobalSearchActive = false;
+
 function handleSearch(e) {
-    const searchTerm = e.target.value.toLowerCase().trim();
-    const clearBtn = document.getElementById('clearSearchBtn');
+    const searchTerm = e.target.value.trim();
+
+    // Se não há busca, volta para filtro local
+    if (!searchTerm) {
+        isGlobalSearchActive = false;
+        const rows = document.querySelectorAll('#documentsTableBody tr');
+        rows.forEach(row => row.style.display = '');
+        updateSelectedDocuments();
+        return;
+    }
+
+    // Limpa timeout anterior
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+    }
+
+    // Se Enter foi pressionado, busca imediatamente
+    if (e.key === 'Enter') {
+        performGlobalSearch(searchTerm);
+        return;
+    }
+
+    // Caso contrário, faz busca local primeiro (instantânea)
+    performLocalSearch(searchTerm);
+
+    // Depois de 1 segundo sem digitar, dispara busca global
+    searchTimeout = setTimeout(() => {
+        performGlobalSearch(searchTerm);
+    }, 1000);
+}
+
+function performLocalSearch(searchTerm) {
+    const searchTermLower = searchTerm.toLowerCase();
     const rows = document.querySelectorAll('#documentsTableBody tr');
 
-    // Mostra/esconde botão de limpar
-    clearBtn.style.display = searchTerm ? 'block' : 'none';
+    let visibleCount = 0;
 
-    // Filtra documentos
+    // Filtra documentos localmente
     rows.forEach(row => {
         const docName = row.getAttribute('data-doc-name');
-        if (docName.includes(searchTerm)) {
+        if (docName.includes(searchTermLower)) {
             row.style.display = '';
+            visibleCount++;
         } else {
             row.style.display = 'none';
             // Desmarca checkbox se estiver selecionado
@@ -684,33 +849,54 @@ function handleSearch(e) {
         }
     });
 
-    // Atualiza contador de resultados
-    updateSearchResults();
-
-    // Atualiza seleção
+    // Atualiza contador de selecionados
     updateSelectedDocuments();
+
+    // Mostra toast com resultado da busca local
+    if (visibleCount < rows.length) {
+        showToast(`Busca local: ${visibleCount} de ${rows.length} documentos`, 'info');
+    }
+}
+
+async function performGlobalSearch(searchTerm) {
+    try {
+        isGlobalSearchActive = true;
+        showToast('🔍 Buscando em todo o SharePoint...', 'info');
+
+        const response = await fetch(`/api/sharepoint/search?q=${encodeURIComponent(searchTerm)}&limit=200`);
+        const data = await response.json();
+
+        if (data.success) {
+            // Atualiza AppState com resultados
+            AppState.documents = data.documents;
+            AppState.selectedDocuments = [];
+
+            // Renderiza documentos encontrados
+            renderDocumentsTable(data.documents);
+
+            // Atualiza mensagem de resultados
+            const cacheText = data.from_cache ? ' (cache)' : '';
+            showToast(`Busca global: ${data.count} documentos encontrados em todo o SharePoint${cacheText}`, 'success');
+        } else {
+            showToast(`Erro na busca: ${data.error}`, 'error');
+        }
+
+    } catch (error) {
+        console.error('Erro na busca global:', error);
+        showToast('Erro ao buscar documentos', 'error');
+    }
 }
 
 function clearSearch() {
     const searchInput = document.getElementById('searchInput');
     searchInput.value = '';
-    searchInput.dispatchEvent(new Event('input'));
-}
 
-function updateSearchResults() {
-    const searchResults = document.getElementById('searchResults');
-    const searchTerm = document.getElementById('searchInput').value.trim();
-    const allRows = document.querySelectorAll('#documentsTableBody tr');
-    const visibleRows = document.querySelectorAll('#documentsTableBody tr[style=""]');
-    const totalCount = allRows.length;
-    const visibleCount = visibleRows.length;
-
-    if (searchTerm && visibleCount < totalCount) {
-        searchResults.textContent = `Mostrando ${visibleCount} de ${totalCount} documentos`;
-        searchResults.style.display = 'block';
+    // Se estava em busca global, recarrega a pasta atual
+    if (isGlobalSearchActive) {
+        isGlobalSearchActive = false;
+        loadDocuments(AppState.currentPath);
     } else {
-        searchResults.textContent = '';
-        searchResults.style.display = 'none';
+        searchInput.dispatchEvent(new Event('input'));
     }
 }
 
@@ -760,27 +946,410 @@ function getFileIcon(type) {
     return icons[type] || '📄';
 }
 
+function getFileMaterialIcon(type) {
+    const icons = {
+        'pdf': 'picture_as_pdf',
+        'word': 'description',
+        'excel': 'table_chart',
+        'powerpoint': 'slideshow',
+        'text': 'description',
+        'image': 'image',
+        'video': 'video_file',
+        'audio': 'audio_file'
+    };
+    return icons[type] || 'description';
+}
+
+function getFileIconColor(type) {
+    const colors = {
+        'pdf': 'text-red-500',
+        'word': 'text-blue-500',
+        'excel': 'text-green-500',
+        'powerpoint': 'text-orange-500',
+        'text': 'text-gray-500',
+        'image': 'text-purple-500',
+        'video': 'text-pink-500',
+        'audio': 'text-indigo-500'
+    };
+    return colors[type] || 'text-gray-500';
+}
+
 function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
 
-    const icons = {
-        'success': '✓',
-        'error': '✗',
-        'info': 'ℹ'
+    const configs = {
+        'success': {
+            bg: 'bg-green-500',
+            icon: 'check_circle',
+            text: 'text-white'
+        },
+        'error': {
+            bg: 'bg-red-500',
+            icon: 'error',
+            text: 'text-white'
+        },
+        'info': {
+            bg: 'bg-blue-500',
+            icon: 'info',
+            text: 'text-white'
+        }
     };
 
+    const config = configs[type] || configs['info'];
+
+    toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${config.bg} ${config.text} transform transition-all duration-300 opacity-0 translate-x-full`;
+
     toast.innerHTML = `
-        <span style="font-size: 1.5rem;">${icons[type] || 'ℹ'}</span>
-        <span>${message}</span>
+        <span class="material-symbols-outlined">${config.icon}</span>
+        <span class="flex-1">${message}</span>
     `;
 
     container.appendChild(toast);
 
+    // Animate in
+    setTimeout(() => {
+        toast.classList.remove('opacity-0', 'translate-x-full');
+    }, 10);
+
     // Remove toast após 5 segundos
     setTimeout(() => {
-        toast.style.animation = 'slideIn 0.3s ease reverse';
+        toast.classList.add('opacity-0', 'translate-x-full');
         setTimeout(() => toast.remove(), 300);
     }, 5000);
 }
+
+// ============================================
+// Chat AI Widget
+// ============================================
+
+const ChatState = {
+    messages: [],
+    isProcessing: false
+};
+
+async function sendChatMessage() {
+    const chatInput = document.getElementById('chatInput');
+    const message = chatInput.value.trim();
+
+    if (!message || ChatState.isProcessing) return;
+
+    // Verifica autenticação
+    if (!AppState.authenticated) {
+        showToast('Faça login primeiro para usar o chat', 'error');
+        return;
+    }
+
+    console.log('%c╔════════════════════════════════════════════════════════════════╗', 'color: #0078d4; font-weight: bold');
+    console.log('%c║ 🤖 SOFIA - Iniciando processamento                            ║', 'color: #0078d4; font-weight: bold');
+    console.log('%c╚════════════════════════════════════════════════════════════════╝', 'color: #0078d4; font-weight: bold');
+    console.log('📝 Pergunta do usuário:', message);
+    console.log('⏰ Timestamp:', new Date().toLocaleTimeString());
+
+    // Limpa input
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+
+    // Adiciona mensagem do usuário
+    addChatMessage('user', message);
+
+    // Mostra loading
+    ChatState.isProcessing = true;
+    showChatLoading(true);
+
+    // Cria mensagem de "pensando" com etapas
+    const thinkingMessage = addThinkingMessage();
+
+    try {
+        // Etapa 1: Iniciando
+        console.log('%c⏳ ETAPA 1: Processando pergunta', 'color: #0078d4; font-weight: bold');
+        updateThinkingStep(thinkingMessage, 0, 'active');
+        await sleep(300);
+
+        // Etapa 2: Buscando documentos
+        console.log('%c✓ ETAPA 1: Concluída', 'color: #107c10; font-weight: bold');
+        console.log('%c🔍 ETAPA 2: Buscando documentos no SharePoint', 'color: #0078d4; font-weight: bold');
+        updateThinkingStep(thinkingMessage, 0, 'completed');
+        updateThinkingStep(thinkingMessage, 1, 'active');
+
+        const requestPayload = {
+            message: message,
+            conversation_history: ChatState.messages.slice(-5)
+        };
+        console.log('📤 Enviando requisição para API:', requestPayload);
+
+        const response = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestPayload)
+        });
+
+        console.log('📥 Resposta recebida - Status:', response.status);
+
+        const data = await response.json();
+        console.log('📦 Dados recebidos:', data);
+
+        if (data.success) {
+            // Etapa 3: Analisando documentos
+            console.log('%c✓ ETAPA 2: Concluída', 'color: #107c10; font-weight: bold');
+            console.log('%c📄 ETAPA 3: Analisando documentos', 'color: #0078d4; font-weight: bold');
+            console.log(`   📊 Documentos encontrados: ${data.documents_found}`);
+            console.log(`   🔍 Documentos analisados: ${data.documents_analyzed}`);
+
+            if (data.sources && data.sources.length > 0) {
+                console.log('   📄 Fontes utilizadas:');
+                data.sources.forEach((source, index) => {
+                    console.log(`      ${index + 1}. ${source.name} (${source.type})`);
+                    console.log(`         URL: ${source.webUrl}`);
+                });
+            }
+
+            updateThinkingStep(thinkingMessage, 1, 'completed');
+            updateThinkingStep(thinkingMessage, 2, 'active');
+            updateThinkingStepText(thinkingMessage, 2, `Analisando ${data.documents_analyzed} documentos encontrados`);
+            await sleep(500);
+
+            // Etapa 4: Gerando resposta
+            console.log('%c✓ ETAPA 3: Concluída', 'color: #107c10; font-weight: bold');
+            console.log('%c✨ ETAPA 4: Gerando resposta com Claude AI', 'color: #0078d4; font-weight: bold');
+            console.log('   💬 Resposta gerada:', data.response.substring(0, 100) + '...');
+
+            updateThinkingStep(thinkingMessage, 2, 'completed');
+            updateThinkingStep(thinkingMessage, 3, 'active');
+            await sleep(500);
+
+            // Todas etapas completas
+            console.log('%c✓ ETAPA 4: Concluída', 'color: #107c10; font-weight: bold');
+            console.log('%c✅ PROCESSAMENTO COMPLETO!', 'color: #107c10; font-weight: bold; font-size: 14px');
+            console.log('%c════════════════════════════════════════════════════════════════', 'color: #107c10; font-weight: bold');
+
+            updateThinkingStep(thinkingMessage, 3, 'completed');
+            await sleep(300);
+
+            // Remove mensagem de pensamento
+            thinkingMessage.remove();
+
+            // Adiciona resposta do bot com fontes
+            addChatMessage('bot', data.response, data.sources || [], data.documents_analyzed, data.documents_found);
+        } else {
+            console.error('%c❌ ERRO NA API:', 'color: #d13438; font-weight: bold', data.error);
+            thinkingMessage.remove();
+            addChatMessage('bot', `❌ Erro: ${data.error}`);
+        }
+
+    } catch (error) {
+        console.error('%c❌ ERRO CRÍTICO:', 'color: #d13438; font-weight: bold');
+        console.error('Detalhes do erro:', error);
+        console.error('Stack trace:', error.stack);
+        thinkingMessage.remove();
+        addChatMessage('bot', '❌ Erro ao processar sua mensagem. Tente novamente.');
+    } finally {
+        ChatState.isProcessing = false;
+        showChatLoading(false);
+        console.log('%c════════════════════════════════════════════════════════════════', 'color: #666');
+        console.log(' ');
+    }
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function addThinkingMessage() {
+    const chatMessages = document.getElementById('chatMessages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'flex gap-3';
+    messageDiv.id = 'thinking-message';
+
+    messageDiv.innerHTML = `
+        <div class="flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
+                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-lg">smart_toy</span>
+            </div>
+        </div>
+        <div class="flex-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-3">
+            <p class="text-sm font-semibold mb-2">Sofia está pensando...</p>
+            <div class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                <div class="thinking-step flex items-center gap-2" data-step="0">
+                    <span class="material-symbols-outlined text-lg">hourglass_empty</span>
+                    <span class="step-text">Processando sua pergunta</span>
+                </div>
+                <div class="thinking-step flex items-center gap-2" data-step="1">
+                    <span class="material-symbols-outlined text-lg">search</span>
+                    <span class="step-text">Buscando documentos relevantes no SharePoint</span>
+                </div>
+                <div class="thinking-step flex items-center gap-2" data-step="2">
+                    <span class="material-symbols-outlined text-lg">description</span>
+                    <span class="step-text">Analisando conteúdo dos documentos</span>
+                </div>
+                <div class="thinking-step flex items-center gap-2" data-step="3">
+                    <span class="material-symbols-outlined text-lg">auto_awesome</span>
+                    <span class="step-text">Gerando resposta inteligente</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    return messageDiv;
+}
+
+function updateThinkingStep(messageDiv, stepIndex, status) {
+    const step = messageDiv.querySelector(`[data-step="${stepIndex}"]`);
+    if (!step) return;
+
+    step.classList.remove('active', 'completed');
+    if (status) {
+        step.classList.add(status);
+    }
+}
+
+function updateThinkingStepText(messageDiv, stepIndex, newText) {
+    const step = messageDiv.querySelector(`[data-step="${stepIndex}"]`);
+    if (!step) return;
+
+    const textSpan = step.querySelector('.step-text');
+    if (textSpan) {
+        textSpan.textContent = newText;
+    }
+}
+
+function addChatMessage(sender, content, sources = [], docsAnalyzed = 0, docsFound = 0) {
+    const chatMessages = document.getElementById('chatMessages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'flex gap-3';
+
+    const isUser = sender === 'user';
+    const avatarBg = isUser ? 'bg-gray-200 dark:bg-gray-700' : 'bg-primary-100 dark:bg-primary-900';
+    const avatarColor = isUser ? 'text-gray-600 dark:text-gray-300' : 'text-primary-600 dark:text-primary-400';
+    const avatarIcon = isUser ? 'person' : 'smart_toy';
+    const messageBg = isUser ? 'bg-primary-50 dark:bg-primary-900/20' : 'bg-neutral-100 dark:bg-neutral-800';
+
+    // Adiciona estatísticas se houver
+    let statsHTML = '';
+    if (!isUser && docsAnalyzed > 0) {
+        statsHTML = `
+            <div class="text-xs text-gray-500 dark:text-gray-400 mt-2 flex items-center gap-2">
+                <span class="material-symbols-outlined text-sm">analytics</span>
+                <span>${docsFound} documentos encontrados • ${docsAnalyzed} analisados</span>
+            </div>
+        `;
+    }
+
+    let sourcesHTML = '';
+    if (sources && sources.length > 0) {
+        sourcesHTML = `
+            <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <div class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-1">
+                    <span class="material-symbols-outlined text-sm">description</span>
+                    <span>Fontes consultadas:</span>
+                </div>
+                <div class="space-y-1">
+                    ${sources.map(source => {
+                        const icon = getFileMaterialIcon(source.type);
+                        const iconColor = getFileIconColor(source.type);
+                        return `
+                            <a href="${source.webUrl}" target="_blank" class="flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400 hover:underline">
+                                <span class="material-symbols-outlined ${iconColor} text-sm">${icon}</span>
+                                <span>${source.name}</span>
+                            </a>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    messageDiv.innerHTML = `
+        <div class="flex-shrink-0">
+            <div class="w-8 h-8 rounded-full ${avatarBg} flex items-center justify-center">
+                <span class="material-symbols-outlined ${avatarColor} text-lg">${avatarIcon}</span>
+            </div>
+        </div>
+        <div class="flex-1 ${messageBg} rounded-lg p-3">
+            <div class="text-sm">${formatChatMessage(content)}</div>
+            ${statsHTML}
+            ${sourcesHTML}
+        </div>
+    `;
+
+    chatMessages.appendChild(messageDiv);
+
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Salva mensagem no histórico
+    ChatState.messages.push({
+        sender: sender,
+        content: content,
+        timestamp: Date.now()
+    });
+}
+
+function formatChatMessage(text) {
+    // Converte markdown básico para HTML
+    let formatted = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+
+    // Detecta listas
+    if (formatted.includes('- ')) {
+        const lines = formatted.split('<br>');
+        let inList = false;
+        let result = [];
+
+        for (let line of lines) {
+            if (line.trim().startsWith('- ')) {
+                if (!inList) {
+                    result.push('<ul>');
+                    inList = true;
+                }
+                result.push(`<li>${line.trim().substring(2)}</li>`);
+            } else {
+                if (inList) {
+                    result.push('</ul>');
+                    inList = false;
+                }
+                result.push(line);
+            }
+        }
+
+        if (inList) {
+            result.push('</ul>');
+        }
+
+        formatted = result.join('');
+    }
+
+    return `<p>${formatted}</p>`;
+}
+
+function showChatLoading(show) {
+    const chatLoading = document.getElementById('chatLoading');
+    const chatSend = document.getElementById('chatSend');
+
+    chatLoading.style.display = show ? 'flex' : 'none';
+    chatSend.disabled = show;
+}
+
+function getFileIcon(type) {
+    const icons = {
+        'pdf': '📕',
+        'word': '📘',
+        'excel': '📊',
+        'powerpoint': '📽️',
+        'text': '📄',
+        'folder': '📁',
+        'image': '🖼️',
+        'video': '🎥',
+        'audio': '🎵'
+    };
+    return icons[type] || '📄';
+}
+
+// Chat widget já está integrado no template, não precisa inicializar

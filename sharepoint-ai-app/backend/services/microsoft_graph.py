@@ -396,3 +396,234 @@ class MicrosoftGraphService:
             if len(parts) > 1:
                 return parts[1].upper()
             return 'file'
+
+    def search_all_documents(
+        self,
+        access_token: str,
+        site_id: str,
+        query: str,
+        max_results: int = 200
+    ) -> List[Dict]:
+        """
+        Busca documentos em todo o SharePoint usando Microsoft Graph Search API
+
+        Args:
+            access_token: Token de acesso
+            site_id: ID do site SharePoint
+            query: Termo de busca
+            max_results: Máximo de resultados (padrão: 200)
+
+        Returns:
+            Lista de documentos encontrados
+        """
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+
+        # Usa a Microsoft Graph Search API
+        search_url = f"{self.graph_endpoint}/search/query"
+
+        search_body = {
+            "requests": [
+                {
+                    "entityTypes": ["driveItem"],
+                    "query": {
+                        "queryString": f"{query}"
+                    },
+                    "from": 0,
+                    "size": max_results,
+                    "fields": [
+                        "name",
+                        "id",
+                        "size",
+                        "webUrl",
+                        "lastModifiedDateTime",
+                        "createdDateTime",
+                        "parentReference"
+                    ]
+                }
+            ]
+        }
+
+        try:
+            print(f"🔍 Buscando '{query}' em todo o SharePoint...")
+            response = requests.post(search_url, headers=headers, json=search_body)
+            response.raise_for_status()
+            data = response.json()
+
+            all_items = []
+
+            # Processa resultados da busca
+            if 'value' in data and len(data['value']) > 0:
+                hits_container = data['value'][0].get('hitsContainers', [])
+
+                for container in hits_container:
+                    hits = container.get('hits', [])
+
+                    for hit in hits:
+                        resource = hit.get('resource', {})
+
+                        # Extrai informações do documento
+                        file_name = resource.get('name', '')
+                        file_id = resource.get('id', '')
+
+                        # Verifica se é um arquivo (não pasta)
+                        if file_name and not resource.get('folder'):
+                            parent_ref = resource.get('parentReference', {})
+
+                            item = {
+                                'id': file_id,
+                                'name': file_name,
+                                'size': resource.get('size', 0),
+                                'webUrl': resource.get('webUrl', ''),
+                                'driveId': parent_ref.get('driveId', ''),
+                                'driveName': parent_ref.get('name', ''),
+                                'lastModified': resource.get('lastModifiedDateTime', ''),
+                                'type': self._get_file_type(file_name),
+                                'isFolder': False,
+                                'parentPath': resource.get('parentReference', {}).get('path', ''),
+                                'searchScore': hit.get('rank', 0)
+                            }
+
+                            all_items.append(item)
+
+            print(f"✓ Encontrados {len(all_items)} documentos na busca global")
+            return all_items
+
+        except Exception as e:
+            print(f"⚠ Erro na busca do Graph Search API: {e}")
+            # Fallback: busca recursiva manual
+            return self._search_recursively(access_token, site_id, query, max_results)
+
+    def _search_recursively(
+        self,
+        access_token: str,
+        site_id: str,
+        query: str,
+        max_results: int = 200
+    ) -> List[Dict]:
+        """
+        Busca recursiva manual como fallback (caso Graph Search API falhe)
+
+        Args:
+            access_token: Token de acesso
+            site_id: ID do site SharePoint
+            query: Termo de busca
+            max_results: Máximo de resultados
+
+        Returns:
+            Lista de documentos encontrados
+        """
+        headers = {'Authorization': f'Bearer {access_token}'}
+        query_lower = query.lower()
+        all_matches = []
+
+        print(f"🔄 Usando busca recursiva manual para '{query}'...")
+
+        try:
+            # Obtém todos os drives
+            drives_url = f"{self.graph_endpoint}/sites/{site_id}/drives"
+            drives = self._get_all_items_paginated(drives_url, headers, max_items=100)
+
+            for drive in drives:
+                drive_id = drive['id']
+                drive_name = drive.get('name', '')
+
+                print(f"  📂 Buscando em: {drive_name}")
+
+                # Busca recursiva neste drive
+                matches = self._search_in_drive(
+                    access_token,
+                    drive_id,
+                    drive_name,
+                    query_lower,
+                    max_results - len(all_matches)
+                )
+
+                all_matches.extend(matches)
+
+                # Para se atingir o máximo
+                if len(all_matches) >= max_results:
+                    break
+
+            print(f"✓ Busca recursiva encontrou {len(all_matches)} documentos")
+            return all_matches[:max_results]
+
+        except Exception as e:
+            print(f"❌ Erro na busca recursiva: {e}")
+            return []
+
+    def _search_in_drive(
+        self,
+        access_token: str,
+        drive_id: str,
+        drive_name: str,
+        query: str,
+        max_results: int
+    ) -> List[Dict]:
+        """
+        Busca recursivamente em um drive específico
+
+        Args:
+            access_token: Token de acesso
+            drive_id: ID do drive
+            drive_name: Nome do drive
+            query: Termo de busca (lowercase)
+            max_results: Máximo de resultados
+
+        Returns:
+            Lista de documentos encontrados
+        """
+        headers = {'Authorization': f'Bearer {access_token}'}
+        matches = []
+
+        def search_folder(folder_path: str = None):
+            """Função recursiva para buscar em pastas"""
+            if len(matches) >= max_results:
+                return
+
+            # Monta URL
+            if folder_path:
+                items_url = f"{self.graph_endpoint}/drives/{drive_id}/root:/{folder_path}:/children"
+            else:
+                items_url = f"{self.graph_endpoint}/drives/{drive_id}/root/children"
+
+            try:
+                items = self._get_all_items_paginated(items_url, headers, max_items=1000)
+
+                for item in items:
+                    if len(matches) >= max_results:
+                        break
+
+                    item_name = item.get('name', '').lower()
+
+                    # Se é arquivo e corresponde à busca
+                    if 'file' in item and query in item_name:
+                        matches.append({
+                            'id': item['id'],
+                            'name': item.get('name', ''),
+                            'size': item.get('size', 0),
+                            'webUrl': item.get('webUrl', ''),
+                            'driveId': drive_id,
+                            'driveName': drive_name,
+                            'lastModified': item.get('lastModifiedDateTime', ''),
+                            'type': self._get_file_type(item.get('name', '')),
+                            'isFolder': False,
+                            'parentPath': folder_path or '',
+                            'downloadUrl': item.get('@microsoft.graph.downloadUrl', '')
+                        })
+
+                    # Se é pasta, busca recursivamente
+                    elif 'folder' in item:
+                        folder_name = item.get('name', '')
+                        new_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
+                        search_folder(new_path)
+
+            except Exception as e:
+                # Ignora erros de acesso (pastas sem permissão, etc)
+                pass
+
+        # Inicia busca recursiva
+        search_folder()
+        return matches

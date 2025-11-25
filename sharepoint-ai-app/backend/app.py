@@ -177,6 +177,14 @@ def list_documents():
         folders = [item for item in items if item.get('isFolder')]
         files = [item for item in items if not item.get('isFolder')]
 
+        # Obtém informações da pasta atual (se estiver navegando em uma pasta)
+        folder_name = None
+        web_url = Config.SHAREPOINT_SITE_URL
+
+        if folder_path and items and len(folders) > 0:
+            # Tenta obter o nome da biblioteca/pasta do primeiro item
+            folder_name = folders[0].get('driveName', 'Biblioteca')
+
         response_data = {
             'success': True,
             'documents': items,
@@ -184,6 +192,8 @@ def list_documents():
             'folders_count': len(folders),
             'files_count': len(files),
             'current_path': folder_path or '',
+            'folder_name': folder_name,
+            'web_url': web_url,
             'from_cache': False
         }
 
@@ -194,7 +204,81 @@ def list_documents():
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"Erro ao listar documentos: {e}")
+        print(f"❌ ERRO ao listar documentos: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # Se erro 401, limpa sessão para forçar novo login
+        if '401' in str(e) or 'Unauthorized' in str(e):
+            session.clear()
+            return jsonify({'error': 'Token expirado. Faça login novamente.', 'auth_required': True}), 401
+
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sharepoint/search')
+def search_documents():
+    """Busca documentos em todo o SharePoint"""
+    try:
+        # Verifica autenticação
+        access_token = session.get('access_token')
+        if not access_token:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        # Obtém query de busca
+        query = request.args.get('q', '').strip()
+        if not query:
+            return jsonify({'error': 'Query de busca não fornecida'}), 400
+
+        # Limite de resultados
+        max_results = int(request.args.get('limit', 200))
+
+        # Cria chave de cache única para esta busca
+        user_email = session.get('user_email', 'unknown')
+        cache_key = f"search_{user_email}_{query}_{max_results}"
+
+        # Tenta obter do cache
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            print(f"✓ Cache hit para busca: {query}")
+            cached_data['from_cache'] = True
+            return jsonify(cached_data)
+
+        # Obtém ID do site SharePoint (com cache)
+        site_cache_key = f"site_id_{Config.SHAREPOINT_SITE_URL}"
+        site_id = cache.get(site_cache_key)
+
+        if not site_id:
+            site_id = graph_service.get_sharepoint_site_id(
+                access_token=access_token,
+                site_url=Config.SHAREPOINT_SITE_URL
+            )
+            cache.set(site_cache_key, site_id, timeout=1800)  # 30 minutos
+
+        # Realiza busca global
+        results = graph_service.search_all_documents(
+            access_token=access_token,
+            site_id=site_id,
+            query=query,
+            max_results=max_results
+        )
+
+        response_data = {
+            'success': True,
+            'documents': results,
+            'count': len(results),
+            'query': query,
+            'from_cache': False
+        }
+
+        # Salva no cache (5 minutos)
+        cache.set(cache_key, response_data, timeout=300)
+        print(f"✓ Cache salvo para busca: {query}")
+
+        return jsonify(response_data)
+
+    except Exception as e:
+        print(f"Erro ao buscar documentos: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -312,6 +396,238 @@ def clear_cache():
             'message': 'Cache limpo com sucesso'
         })
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai/chat', methods=['POST'])
+def chat():
+    """Chat com IA usando RAG (Retrieval Augmented Generation)"""
+    try:
+        # Verifica autenticação
+        access_token = session.get('access_token')
+        if not access_token:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        # Obtém dados da requisição
+        data = request.get_json()
+        user_message = data.get('message', '').strip()
+        conversation_history = data.get('conversation_history', [])
+
+        if not user_message:
+            return jsonify({'error': 'Mensagem vazia'}), 400
+
+        # Log header
+        print(f"\n{'='*70}")
+        print(f"║ 🤖 SOFIA - PROCESSAMENTO DE CHAT")
+        print(f"{'='*70}")
+        print(f"👤 Usuário: {session.get('user_email', 'unknown')}")
+        print(f"📝 Pergunta: {user_message}")
+        print(f"⏰ Timestamp: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"💬 Histórico: {len(conversation_history)} mensagens anteriores")
+        print(f"{'='*70}\n")
+
+        # Obtém ID do site SharePoint (com cache)
+        site_cache_key = f"site_id_{Config.SHAREPOINT_SITE_URL}"
+        site_id = cache.get(site_cache_key)
+
+        if not site_id:
+            print("🔐 Obtendo site_id do SharePoint...")
+            site_id = graph_service.get_sharepoint_site_id(
+                access_token=access_token,
+                site_url=Config.SHAREPOINT_SITE_URL
+            )
+            cache.set(site_cache_key, site_id, timeout=1800)
+            print(f"✓ Site ID obtido: {site_id[:20]}...")
+        else:
+            print(f"✓ Site ID (cache): {site_id[:20]}...")
+
+        # Etapa 1: Buscar documentos relevantes usando busca global
+        print(f"\n{'─'*70}")
+        print("🔍 ETAPA 1: BUSCANDO DOCUMENTOS NO SHAREPOINT")
+        print(f"{'─'*70}")
+        print(f"📊 Query de busca: '{user_message}'")
+        print(f"📈 Máximo de resultados: 10")
+
+        relevant_docs = graph_service.search_all_documents(
+            access_token=access_token,
+            site_id=site_id,
+            query=user_message,
+            max_results=10
+        )
+
+        print(f"\n✅ Busca concluída: {len(relevant_docs)} documentos encontrados")
+        if relevant_docs:
+            print("📄 Documentos encontrados:")
+            for i, doc in enumerate(relevant_docs[:5], 1):
+                print(f"   {i}. {doc['name']} ({doc['type']}) - Drive: {doc.get('driveName', 'N/A')}")
+
+        # Etapa 2: Extrair conteúdo dos documentos (máximo 3 documentos)
+        print(f"\n{'─'*70}")
+        print("📄 ETAPA 2: EXTRAINDO CONTEÚDO DOS DOCUMENTOS")
+        print(f"{'─'*70}")
+
+        documents_content = []
+        max_docs_to_analyze = 3
+        print(f"📊 Documentos a analisar: {min(len(relevant_docs), max_docs_to_analyze)}")
+
+        for i, doc in enumerate(relevant_docs[:max_docs_to_analyze], 1):
+            try:
+                print(f"\n   [{i}/{max_docs_to_analyze}] 📄 {doc['name']}")
+                print(f"       Tipo: {doc['type']}")
+                print(f"       Tamanho: {doc.get('size', 0)} bytes")
+
+                # Baixa conteúdo do arquivo
+                print(f"       ⬇️  Baixando arquivo...")
+                file_content = graph_service.download_file_content(
+                    access_token=access_token,
+                    drive_id=doc['driveId'],
+                    file_id=doc['id']
+                )
+                print(f"       ✓ Download concluído ({len(file_content)} bytes)")
+
+                # Extrai texto
+                print(f"       📝 Extraindo texto...")
+                extracted_text = claude_service.extract_text_from_file(
+                    file_content=file_content,
+                    file_type=doc['type']
+                )
+
+                # Limita tamanho do texto
+                max_chars = 10000
+                was_truncated = False
+                if len(extracted_text) > max_chars:
+                    extracted_text = extracted_text[:max_chars] + "\n[... conteúdo truncado ...]"
+                    was_truncated = True
+
+                documents_content.append({
+                    'name': doc['name'],
+                    'type': doc['type'],
+                    'content': extracted_text,
+                    'webUrl': doc.get('webUrl', ''),
+                    'id': doc['id'],
+                    'driveId': doc['driveId']
+                })
+
+                truncated_msg = " (truncado)" if was_truncated else ""
+                print(f"       ✅ Texto extraído: {len(extracted_text):,} caracteres{truncated_msg}")
+                print(f"       📊 Preview: {extracted_text[:100].strip()}...")
+
+            except Exception as e:
+                print(f"       ❌ ERRO: {str(e)}")
+                import traceback
+                print(f"       Stack: {traceback.format_exc()[:200]}...")
+                continue
+
+        print(f"\n✅ Extração concluída: {len(documents_content)} documentos processados com sucesso")
+
+        # Etapa 3: Construir contexto para Claude
+        print(f"\n{'─'*70}")
+        print("🧠 ETAPA 3: CONSTRUINDO CONTEXTO PARA CLAUDE AI")
+        print(f"{'─'*70}")
+
+        context_text = ""
+        if documents_content:
+            context_text = "\n\n".join([
+                f"DOCUMENTO: {doc['name']}\n{'='*50}\n{doc['content']}\n"
+                for doc in documents_content
+            ])
+            total_context_chars = len(context_text)
+            print(f"📊 Contexto construído: {total_context_chars:,} caracteres")
+            print(f"📄 Documentos no contexto: {len(documents_content)}")
+            for i, doc in enumerate(documents_content, 1):
+                print(f"   {i}. {doc['name']} - {len(doc['content']):,} chars")
+        else:
+            print("⚠️  Nenhum documento com conteúdo válido")
+
+        # Etapa 4: Criar prompt para Claude com RAG
+        print(f"\n{'─'*70}")
+        print("✨ ETAPA 4: GERANDO RESPOSTA COM CLAUDE AI")
+        print(f"{'─'*70}")
+
+        system_prompt = f"""Você é Sofia, uma assistente IA especializada em ajudar usuários a encontrar informações no SharePoint.
+
+CONTEXTO DOS DOCUMENTOS:
+{context_text if context_text else "Nenhum documento relevante encontrado."}
+
+INSTRUÇÕES:
+- Responda a pergunta do usuário baseando-se APENAS nas informações dos documentos fornecidos
+- Se a informação não estiver nos documentos, diga claramente que não encontrou
+- Cite os nomes dos documentos quando usar informações deles
+- Seja objetivo, prestativa e direto ao ponto
+- Use formatação markdown quando apropriado (**negrito**, listas, etc.)
+- Mantenha um tom profissional mas amigável"""
+
+        # Constrói histórico de conversação
+        messages = []
+
+        # Adiciona mensagens anteriores (se houver)
+        for msg in conversation_history[-4:]:
+            role = "user" if msg['sender'] == 'user' else "assistant"
+            messages.append({
+                "role": role,
+                "content": msg['content']
+            })
+
+        # Adiciona mensagem atual
+        messages.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        print(f"📤 Parâmetros da requisição:")
+        print(f"   Modelo: {claude_service.model}")
+        print(f"   Max tokens: 2000")
+        print(f"   System prompt: {len(system_prompt):,} caracteres")
+        print(f"   Mensagens no histórico: {len(messages)}")
+        print(f"   Pergunta: \"{user_message}\"")
+        print(f"\n⏳ Aguardando resposta de Claude AI...")
+
+        # Chama Claude AI
+        import time
+        start_time = time.time()
+
+        response = claude_service.client.messages.create(
+            model=claude_service.model,
+            max_tokens=2000,
+            system=system_prompt,
+            messages=messages
+        )
+
+        elapsed_time = time.time() - start_time
+        ai_response = response.content[0].text
+
+        print(f"✅ Resposta recebida!")
+        print(f"   ⏱️  Tempo de resposta: {elapsed_time:.2f}s")
+        print(f"   📝 Tamanho da resposta: {len(ai_response)} caracteres")
+        print(f"   📊 Tokens usados: ~{response.usage.input_tokens} input / ~{response.usage.output_tokens} output")
+        print(f"   💬 Preview: {ai_response[:150].strip()}...")
+
+        print(f"\n{'='*70}")
+        print(f"✅ PROCESSAMENTO COMPLETO - SOFIA RESPONDEU!")
+        print(f"{'='*70}\n")
+
+        # Prepara fontes para retornar
+        sources = [
+            {
+                'name': doc['name'],
+                'type': doc['type'],
+                'webUrl': doc['webUrl']
+            }
+            for doc in documents_content
+        ]
+
+        return jsonify({
+            'success': True,
+            'response': ai_response,
+            'sources': sources,
+            'documents_analyzed': len(documents_content),
+            'documents_found': len(relevant_docs)
+        })
+
+    except Exception as e:
+        print(f"❌ Erro no chat: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

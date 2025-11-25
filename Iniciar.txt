@@ -1,0 +1,11 @@
+# 1. Entre na pasta do projeto
+  cd /home/gabriel/Documentos/ProjetosEmpresa/microsoft/sharepoint-ai-app
+
+# 2. Ative o ambiente virtual
+  source venv/bin/activate
+
+# 3. Entre na pasta do backend
+  cd backend
+
+# 4. Inicie o servidor Flask
+  python app.py
