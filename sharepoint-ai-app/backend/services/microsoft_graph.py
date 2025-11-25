@@ -114,64 +114,201 @@ class MicrosoftGraphService:
         response.raise_for_status()
         return response.json()['id']
 
+    def _get_all_items_paginated(self, url: str, headers: Dict, max_items: int = 5000) -> List[Dict]:
+        """
+        Busca todos os itens de uma URL com paginação
+
+        Args:
+            url: URL inicial
+            headers: Headers HTTP
+            max_items: Máximo de itens a buscar (proteção contra loops infinitos)
+
+        Returns:
+            Lista completa de itens
+        """
+        all_items = []
+        current_url = url
+        page_count = 0
+
+        while current_url and len(all_items) < max_items:
+            page_count += 1
+            response = requests.get(current_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            items = data.get('value', [])
+            all_items.extend(items)
+
+            # Verifica se há próxima página
+            current_url = data.get('@odata.nextLink', None)
+
+            if current_url:
+                print(f"  📄 Página {page_count}: {len(items)} itens (total: {len(all_items)})")
+
+        if len(all_items) > 0:
+            print(f"  ✓ Total: {len(all_items)} itens em {page_count} página(s)")
+
+        return all_items
+
     def list_documents(
         self,
         access_token: str,
         site_id: str,
-        drive_name: str = None
+        drive_name: str = None,
+        folder_path: str = None
     ) -> List[Dict]:
         """
-        Lista documentos do SharePoint
+        Lista documentos e pastas do SharePoint com paginação completa e hierarquia
 
         Args:
             access_token: Token de acesso
             site_id: ID do site SharePoint
             drive_name: Nome da biblioteca de documentos (opcional)
+            folder_path: Caminho da pasta no formato 'drive:{drive_id}' ou 'drive:{drive_id}/path'
 
         Returns:
-            Lista de documentos
+            Lista de documentos e pastas
         """
         headers = {'Authorization': f'Bearer {access_token}'}
 
-        # Obtém drives (bibliotecas de documentos) do site
-        drives_url = f"{self.graph_endpoint}/sites/{site_id}/drives"
-        drives_response = requests.get(drives_url, headers=headers)
-        drives_response.raise_for_status()
-        drives = drives_response.json().get('value', [])
+        # Se folder_path é None (raiz), retorna os drives como pastas principais
+        if not folder_path:
+            return self._list_drives_as_folders(site_id, headers)
 
-        all_documents = []
+        # Caso contrário, navega dentro de um drive específico
+        return self._list_drive_contents(folder_path, headers)
+
+    def _list_drives_as_folders(self, site_id: str, headers: Dict) -> List[Dict]:
+        """
+        Lista os drives (bibliotecas) como pastas principais
+
+        Args:
+            site_id: ID do site SharePoint
+            headers: Headers HTTP
+
+        Returns:
+            Lista de drives formatados como pastas
+        """
+        drives_url = f"{self.graph_endpoint}/sites/{site_id}/drives"
+        print(f"🔍 Listando bibliotecas principais (raiz)...")
+        drives = self._get_all_items_paginated(drives_url, headers)
+
+        all_items = []
 
         for drive in drives:
-            # Lista itens de cada drive
-            items_url = f"{self.graph_endpoint}/drives/{drive['id']}/root/children"
+            drive_name = drive.get('name', 'Desconhecido')
 
-            try:
-                items_response = requests.get(items_url, headers=headers)
-                items_response.raise_for_status()
-                items = items_response.json().get('value', [])
+            # Cria uma "pasta" para cada drive
+            all_items.append({
+                'id': drive['id'],
+                'name': drive_name,
+                'size': 0,
+                'webUrl': drive.get('webUrl', ''),
+                'driveId': drive['id'],
+                'driveName': drive_name,
+                'lastModified': drive.get('lastModifiedDateTime', ''),
+                'type': 'folder',
+                'isFolder': True,
+                'isDrive': True,  # Marca como drive/biblioteca
+                'childCount': 0,
+                'parentPath': '',
+                'folderPath': f"drive:{drive['id']}"  # Caminho para navegação
+            })
 
-                # Filtra apenas arquivos (não pastas) e formatos suportados
-                supported_extensions = ['.pdf', '.docx', '.xlsx', '.pptx', '.txt']
+        # Ordena alfabeticamente
+        all_items.sort(key=lambda x: x.get('name', '').lower())
 
-                for item in items:
-                    if 'file' in item:  # É um arquivo, não pasta
-                        file_name = item.get('name', '')
-                        if any(file_name.lower().endswith(ext) for ext in supported_extensions):
-                            all_documents.append({
-                                'id': item['id'],
-                                'name': file_name,
-                                'size': item.get('size', 0),
-                                'webUrl': item.get('webUrl', ''),
-                                'downloadUrl': item.get('@microsoft.graph.downloadUrl', ''),
-                                'driveId': drive['id'],
-                                'lastModified': item.get('lastModifiedDateTime', ''),
-                                'type': self._get_file_type(file_name)
-                            })
-            except requests.exceptions.HTTPError as e:
-                print(f"Erro ao acessar drive {drive.get('name', 'unknown')}: {e}")
-                continue
+        print(f"✓ {len(all_items)} bibliotecas encontradas")
 
-        return all_documents
+        return all_items
+
+    def _list_drive_contents(self, folder_path: str, headers: Dict) -> List[Dict]:
+        """
+        Lista conteúdos dentro de um drive específico
+
+        Args:
+            folder_path: Caminho no formato 'drive:{drive_id}' ou 'drive:{drive_id}/path'
+            headers: Headers HTTP
+
+        Returns:
+            Lista de itens (pastas e arquivos)
+        """
+        # Parse do folder_path
+        # Formato: drive:{drive_id} ou drive:{drive_id}/caminho/subpasta
+        if not folder_path.startswith('drive:'):
+            raise ValueError(f"Formato de caminho inválido: {folder_path}")
+
+        # Remove o prefixo 'drive:'
+        path_parts = folder_path[6:].split('/', 1)
+        drive_id = path_parts[0]
+        internal_path = path_parts[1] if len(path_parts) > 1 else None
+
+        print(f"📂 Navegando: Drive ID={drive_id}, Caminho interno={internal_path or 'raiz'}")
+
+        # Monta a URL baseada se há caminho interno
+        if internal_path:
+            items_url = f"{self.graph_endpoint}/drives/{drive_id}/root:/{internal_path}:/children"
+        else:
+            items_url = f"{self.graph_endpoint}/drives/{drive_id}/root/children"
+
+        # Busca os itens
+        items = self._get_all_items_paginated(items_url, headers)
+
+        all_items = []
+        total_files_found = 0
+        total_folders_found = 0
+
+        for item in items:
+            # Verifica se é pasta
+            if 'folder' in item:
+                # Monta o novo caminho para navegação
+                new_path = f"drive:{drive_id}"
+                if internal_path:
+                    new_path += f"/{internal_path}/{item.get('name', '')}"
+                else:
+                    new_path += f"/{item.get('name', '')}"
+
+                all_items.append({
+                    'id': item['id'],
+                    'name': item.get('name', ''),
+                    'size': 0,
+                    'webUrl': item.get('webUrl', ''),
+                    'driveId': drive_id,
+                    'driveName': '',  # Preenchido depois se necessário
+                    'lastModified': item.get('lastModifiedDateTime', ''),
+                    'type': 'folder',
+                    'isFolder': True,
+                    'isDrive': False,
+                    'childCount': item.get('folder', {}).get('childCount', 0),
+                    'parentPath': folder_path,
+                    'folderPath': new_path
+                })
+                total_folders_found += 1
+
+            # Verifica se é arquivo (aceita TODOS os arquivos)
+            elif 'file' in item:
+                file_name = item.get('name', '')
+                all_items.append({
+                    'id': item['id'],
+                    'name': file_name,
+                    'size': item.get('size', 0),
+                    'webUrl': item.get('webUrl', ''),
+                    'downloadUrl': item.get('@microsoft.graph.downloadUrl', ''),
+                    'driveId': drive_id,
+                    'driveName': '',
+                    'lastModified': item.get('lastModifiedDateTime', ''),
+                    'type': self._get_file_type(file_name),
+                    'isFolder': False,
+                    'parentPath': folder_path
+                })
+                total_files_found += 1
+
+        # Ordena: pastas primeiro, depois arquivos (ambos alfabeticamente)
+        all_items.sort(key=lambda x: (not x.get('isFolder', False), x.get('name', '').lower()))
+
+        print(f"✓ Encontrados: {total_folders_found} pastas, {total_files_found} arquivos")
+
+        return all_items
 
     def download_file_content(self, access_token: str, drive_id: str, file_id: str) -> bytes:
         """
@@ -205,15 +342,57 @@ class MicrosoftGraphService:
             Tipo do arquivo
         """
         filename_lower = filename.lower()
+
+        # Documentos PDF
         if filename_lower.endswith('.pdf'):
             return 'pdf'
-        elif filename_lower.endswith('.docx'):
+
+        # Documentos Word
+        elif filename_lower.endswith(('.docx', '.doc')):
             return 'word'
-        elif filename_lower.endswith('.xlsx'):
+
+        # Planilhas Excel
+        elif filename_lower.endswith(('.xlsx', '.xls', '.xlsm', '.csv')):
             return 'excel'
-        elif filename_lower.endswith('.pptx'):
+
+        # Apresentações PowerPoint
+        elif filename_lower.endswith(('.pptx', '.ppt')):
             return 'powerpoint'
-        elif filename_lower.endswith('.txt'):
+
+        # Arquivos de texto
+        elif filename_lower.endswith(('.txt', '.md', '.log', '.json', '.xml', '.html', '.css', '.js', '.py', '.java', '.cpp', '.c', '.h')):
             return 'text'
+
+        # Imagens
+        elif filename_lower.endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico', '.webp')):
+            return 'image'
+
+        # Vídeos
+        elif filename_lower.endswith(('.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.webm')):
+            return 'video'
+
+        # Áudio
+        elif filename_lower.endswith(('.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a')):
+            return 'audio'
+
+        # Arquivos comprimidos
+        elif filename_lower.endswith(('.zip', '.rar', '.7z', '.tar', '.gz', '.bz2')):
+            return 'archive'
+
+        # Executáveis/Aplicativos
+        elif filename_lower.endswith(('.exe', '.msi', '.app', '.apk', '.deb', '.rpm')):
+            return 'executable'
+
+        # Outros tipos conhecidos
+        elif filename_lower.endswith('.dwg'):
+            return 'cad'
+        elif filename_lower.endswith(('.psd', '.ai', '.sketch')):
+            return 'design'
+
+        # Tipo desconhecido
         else:
-            return 'unknown'
+            # Tenta extrair a extensão para mostrar
+            parts = filename.rsplit('.', 1)
+            if len(parts) > 1:
+                return parts[1].upper()
+            return 'file'

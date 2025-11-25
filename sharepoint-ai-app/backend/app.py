@@ -3,6 +3,7 @@ Aplicação Flask - SharePoint + Claude AI Integration
 """
 from flask import Flask, request, jsonify, redirect, session, send_from_directory
 from flask_cors import CORS
+from flask_caching import Cache
 from config import Config
 from services.microsoft_graph import MicrosoftGraphService
 from services.claude_ai import ClaudeAIService
@@ -12,6 +13,12 @@ import os
 app = Flask(__name__, static_folder='../frontend')
 app.secret_key = Config.SECRET_KEY
 CORS(app, supports_credentials=True)
+
+# Configura cache (5 minutos para documentos, 30 minutos para site_id)
+cache = Cache(app, config={
+    'CACHE_TYPE': 'SimpleCache',
+    'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutos
+})
 
 # Valida configurações
 try:
@@ -123,30 +130,68 @@ def auth_status():
 
 @app.route('/api/sharepoint/documents')
 def list_documents():
-    """Lista documentos do SharePoint"""
+    """Lista documentos e pastas do SharePoint"""
     try:
         # Verifica autenticação
         access_token = session.get('access_token')
         if not access_token:
             return jsonify({'error': 'Não autenticado'}), 401
 
-        # Obtém ID do site SharePoint
-        site_id = graph_service.get_sharepoint_site_id(
+        # Obtém parâmetro de pasta (para navegação)
+        folder_path = request.args.get('folder_path', None)
+
+        # Parâmetro para forçar refresh do cache
+        force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+
+        # Cria chave de cache única para este usuário e pasta
+        user_email = session.get('user_email', 'unknown')
+        cache_key = f"docs_{user_email}_{folder_path or 'root'}"
+
+        # Tenta obter do cache se não for refresh forçado
+        if not force_refresh:
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                print(f"✓ Cache hit para: {cache_key}")
+                cached_data['from_cache'] = True
+                return jsonify(cached_data)
+
+        # Obtém ID do site SharePoint (com cache de 30 minutos)
+        site_cache_key = f"site_id_{Config.SHAREPOINT_SITE_URL}"
+        site_id = cache.get(site_cache_key)
+
+        if not site_id:
+            site_id = graph_service.get_sharepoint_site_id(
+                access_token=access_token,
+                site_url=Config.SHAREPOINT_SITE_URL
+            )
+            cache.set(site_cache_key, site_id, timeout=1800)  # 30 minutos
+
+        # Lista documentos e pastas
+        items = graph_service.list_documents(
             access_token=access_token,
-            site_url=Config.SHAREPOINT_SITE_URL
+            site_id=site_id,
+            folder_path=folder_path
         )
 
-        # Lista documentos
-        documents = graph_service.list_documents(
-            access_token=access_token,
-            site_id=site_id
-        )
+        # Separa pastas e arquivos para estatísticas
+        folders = [item for item in items if item.get('isFolder')]
+        files = [item for item in items if not item.get('isFolder')]
 
-        return jsonify({
+        response_data = {
             'success': True,
-            'documents': documents,
-            'count': len(documents)
-        })
+            'documents': items,
+            'count': len(items),
+            'folders_count': len(folders),
+            'files_count': len(files),
+            'current_path': folder_path or '',
+            'from_cache': False
+        }
+
+        # Salva no cache
+        cache.set(cache_key, response_data, timeout=300)  # 5 minutos
+        print(f"✓ Cache salvo para: {cache_key}")
+
+        return jsonify(response_data)
 
     except Exception as e:
         print(f"Erro ao listar documentos: {e}")
@@ -175,8 +220,22 @@ def summarize_documents():
 
         # Processa cada documento
         summaries = []
+        cache_hits = 0
+
         for doc_info in document_ids:
             try:
+                # Cria chave de cache para este documento
+                cache_key = f"summary_{doc_info['id']}_{doc_info['driveId']}"
+
+                # Tenta obter resumo do cache
+                cached_summary = cache.get(cache_key)
+                if cached_summary:
+                    print(f"✓ Cache hit para resumo: {doc_info['name']}")
+                    cached_summary['from_cache'] = True
+                    summaries.append(cached_summary)
+                    cache_hits += 1
+                    continue
+
                 # Baixa conteúdo do arquivo
                 file_content = graph_service.download_file_content(
                     access_token=access_token,
@@ -191,13 +250,20 @@ def summarize_documents():
                     file_name=doc_info['name']
                 )
 
+                # Salva no cache (30 minutos)
+                if summary.get('success'):
+                    cache.set(cache_key, summary, timeout=1800)
+                    print(f"✓ Cache salvo para resumo: {doc_info['name']}")
+
+                summary['from_cache'] = False
                 summaries.append(summary)
 
             except Exception as e:
                 summaries.append({
                     'success': False,
                     'error': str(e),
-                    'file_name': doc_info.get('name', 'Desconhecido')
+                    'file_name': doc_info.get('name', 'Desconhecido'),
+                    'from_cache': False
                 })
 
         # Se múltiplos documentos, gera resumo consolidado
@@ -208,20 +274,44 @@ def summarize_documents():
                 summary_texts = [s['summary'] for s in successful_summaries]
                 file_names = [s['file_name'] for s in successful_summaries]
 
-                consolidated_summary = claude_service.generate_combined_summary(
-                    individual_summaries=summary_texts,
-                    file_names=file_names
-                )
+                # Cache do resumo consolidado
+                doc_ids_str = '_'.join(sorted([d['id'] for d in document_ids]))
+                consolidated_cache_key = f"consolidated_{doc_ids_str}"
+
+                consolidated_summary = cache.get(consolidated_cache_key)
+                if not consolidated_summary:
+                    consolidated_summary = claude_service.generate_combined_summary(
+                        individual_summaries=summary_texts,
+                        file_names=file_names
+                    )
+                    cache.set(consolidated_cache_key, consolidated_summary, timeout=1800)
+                    print("✓ Cache salvo para resumo consolidado")
+                else:
+                    print("✓ Cache hit para resumo consolidado")
 
         return jsonify({
             'success': True,
             'summaries': summaries,
             'consolidated_summary': consolidated_summary,
-            'total_processed': len(summaries)
+            'total_processed': len(summaries),
+            'cache_hits': cache_hits
         })
 
     except Exception as e:
         print(f"Erro ao resumir documentos: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    """Limpa o cache da aplicação"""
+    try:
+        cache.clear()
+        return jsonify({
+            'success': True,
+            'message': 'Cache limpo com sucesso'
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 

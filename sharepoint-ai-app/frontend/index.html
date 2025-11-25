@@ -70,6 +70,10 @@
                         </button>
                     </div>
                     <div class="card-body">
+                        <!-- Breadcrumb Navigation -->
+                        <div class="breadcrumb-container" id="breadcrumbContainer" style="display: none;">
+                            <nav class="breadcrumb" id="breadcrumb"></nav>
+                        </div>
                         <!-- Loading -->
                         <div class="loading" id="documentsLoading">
                             <div class="spinner"></div>
@@ -78,6 +82,21 @@
 
                         <!-- Documents Table -->
                         <div id="documentsTable" style="display: none;">
+                            <!-- Search Bar -->
+                            <div class="search-container">
+                                <div class="search-box">
+                                    <span class="search-icon">🔍</span>
+                                    <input
+                                        type="text"
+                                        id="searchInput"
+                                        class="search-input"
+                                        placeholder="Pesquisar documentos por nome..."
+                                    >
+                                    <button class="search-clear" id="clearSearchBtn" style="display: none;">✕</button>
+                                </div>
+                                <span class="search-results" id="searchResults"></span>
+                            </div>
+
                             <div class="table-actions">
                                 <button class="btn btn-primary" id="summarizeBtn" disabled>
                                     <span class="btn-icon">🤖</span>

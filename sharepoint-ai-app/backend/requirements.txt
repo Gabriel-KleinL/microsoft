@@ -3,13 +3,14 @@
 # Framework Web
 Flask==3.0.0
 flask-cors==4.0.0
+Flask-Caching==2.1.0
 
 # Microsoft Graph / Azure AD
 msal==1.26.0
 requests==2.31.0
 
 # Claude AI (Anthropic)
-anthropic==0.39.0
+anthropic>=0.40.0
 
 # Processamento de Documentos
 PyPDF2==3.0.1
