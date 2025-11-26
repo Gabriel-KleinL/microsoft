@@ -122,17 +122,205 @@ class ClaudeAIService:
         except Exception as e:
             return f"Erro ao extrair texto do PowerPoint: {str(e)}"
 
-    def extract_text_from_file(self, file_content: bytes, file_type: str) -> str:
+    def analyze_image(self, file_content: bytes, file_name: str) -> str:
         """
-        Extrai texto de arquivo baseado no tipo
-
+        Analisa imagem usando Claude Vision API
+        
+        Args:
+            file_content: Conteúdo da imagem em bytes
+            file_name: Nome do arquivo
+            
+        Returns:
+            Descrição da imagem
+        """
+        try:
+            # Detecta tipo de imagem
+            import imghdr
+            image_type = imghdr.what(None, h=file_content)
+            
+            if not image_type:
+                # Tenta detectar pelo nome do arquivo
+                ext = file_name.lower().split('.')[-1]
+                image_type = ext if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp'] else 'jpeg'
+            
+            # Converte para base64
+            image_data = base64.standard_b64encode(file_content).decode("utf-8")
+            
+            # Usa Claude Vision para analisar a imagem
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": f"image/{image_type}",
+                                    "data": image_data,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": "Descreva esta imagem em detalhes em português do Brasil. Inclua: o que você vê, elementos principais, cores, texto visível (se houver), contexto e qualquer informação relevante."
+                            }
+                        ],
+                    }
+                ],
+            )
+            
+            return f"[ANÁLISE DE IMAGEM]\n{message.content[0].text}"
+            
+        except Exception as e:
+            return f"[IMAGEM] Não foi possível analisar a imagem: {str(e)}"
+    
+    def analyze_video_metadata(self, file_content: bytes, file_name: str) -> str:
+        """
+        Analisa metadados de vídeo
+        
+        Args:
+            file_content: Conteúdo do vídeo em bytes
+            file_name: Nome do arquivo
+            
+        Returns:
+            Informações sobre o vídeo
+        """
+        try:
+            import struct
+            
+            # Informações básicas
+            size_mb = len(file_content) / (1024 * 1024)
+            ext = file_name.lower().split('.')[-1]
+            
+            info = f"[VÍDEO]\n"
+            info += f"Nome: {file_name}\n"
+            info += f"Formato: {ext.upper()}\n"
+            info += f"Tamanho: {size_mb:.2f} MB\n"
+            
+            # Tenta detectar resolução e duração (simplificado)
+            if ext == 'mp4':
+                info += "Tipo: Vídeo MP4\n"
+            elif ext == 'avi':
+                info += "Tipo: Vídeo AVI\n"
+            elif ext == 'mov':
+                info += "Tipo: Vídeo QuickTime\n"
+            else:
+                info += f"Tipo: Vídeo {ext.upper()}\n"
+            
+            info += "\nNota: Este é um arquivo de vídeo. Para análise completa do conteúdo, seria necessário extrair frames e processá-los individualmente."
+            
+            return info
+            
+        except Exception as e:
+            return f"[VÍDEO] {file_name} - Tamanho: {len(file_content) / (1024 * 1024):.2f} MB"
+    
+    def analyze_executable(self, file_content: bytes, file_name: str) -> str:
+        """
+        Analisa arquivo executável ou binário
+        
         Args:
             file_content: Conteúdo do arquivo em bytes
-            file_type: Tipo do arquivo (pdf, word, excel, powerpoint, text)
-
+            file_name: Nome do arquivo
+            
         Returns:
-            Texto extraído
+            Informações sobre o executável
         """
+        try:
+            size_mb = len(file_content) / (1024 * 1024)
+            ext = file_name.lower().split('.')[-1]
+            
+            info = f"[EXECUTÁVEL/BINÁRIO]\n"
+            info += f"Nome: {file_name}\n"
+            info += f"Extensão: {ext.upper()}\n"
+            info += f"Tamanho: {size_mb:.2f} MB\n"
+            
+            # Detecta tipo de executável
+            if file_content.startswith(b'MZ'):
+                info += "Tipo: Executável Windows (PE)\n"
+            elif file_content.startswith(b'\x7fELF'):
+                info += "Tipo: Executável Linux (ELF)\n"
+            elif file_content.startswith(b'\xca\xfe\xba\xbe'):
+                info += "Tipo: Executável macOS (Mach-O)\n"
+            else:
+                info += f"Tipo: Arquivo binário {ext.upper()}\n"
+            
+            # Tenta extrair strings legíveis
+            try:
+                readable_strings = []
+                current_string = []
+                for byte in file_content[:10000]:  # Primeiros 10KB
+                    if 32 <= byte <= 126:  # Caracteres ASCII imprimíveis
+                        current_string.append(chr(byte))
+                    else:
+                        if len(current_string) >= 4:
+                            readable_strings.append(''.join(current_string))
+                        current_string = []
+                
+                if readable_strings:
+                    info += f"\nStrings encontradas (primeiras 10): {', '.join(readable_strings[:10])}"
+            except:
+                pass
+            
+            return info
+            
+        except Exception as e:
+            return f"[BINÁRIO] {file_name} - Tamanho: {len(file_content) / (1024 * 1024):.2f} MB"
+    
+    def analyze_archive(self, file_content: bytes, file_name: str) -> str:
+        """
+        Analisa arquivo compactado
+        
+        Args:
+            file_content: Conteúdo do arquivo em bytes
+            file_name: Nome do arquivo
+            
+        Returns:
+            Informações sobre o arquivo
+        """
+        try:
+            import zipfile
+            
+            size_mb = len(file_content) / (1024 * 1024)
+            ext = file_name.lower().split('.')[-1]
+            
+            info = f"[ARQUIVO COMPACTADO]\n"
+            info += f"Nome: {file_name}\n"
+            info += f"Formato: {ext.upper()}\n"
+            info += f"Tamanho: {size_mb:.2f} MB\n"
+            
+            # Tenta listar conteúdo se for ZIP
+            if ext == 'zip':
+                try:
+                    with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+                        files = zf.namelist()
+                        info += f"\nArquivos contidos ({len(files)} total):\n"
+                        for f in files[:20]:  # Primeiros 20
+                            info += f"  - {f}\n"
+                        if len(files) > 20:
+                            info += f"  ... e mais {len(files) - 20} arquivos\n"
+                except:
+                    info += "\nNão foi possível listar o conteúdo do arquivo ZIP.\n"
+            
+            return info
+            
+        except Exception as e:
+            return f"[ARQUIVO] {file_name} - Tamanho: {len(file_content) / (1024 * 1024):.2f} MB"
+
+    def extract_text_from_file(self, file_content: bytes, file_type: str, file_name: str = "") -> str:
+        """
+        Extrai texto/informação de QUALQUER tipo de arquivo
+        
+        Args:
+            file_content: Conteúdo do arquivo em bytes
+            file_type: Tipo do arquivo (pdf, word, excel, powerpoint, text, image, video, etc.)
+            file_name: Nome do arquivo (opcional, usado para análise)
+        
+        Returns:
+            Texto extraído ou análise do arquivo
+        """
+        # Documentos de texto tradicionais
         if file_type == 'pdf':
             return self.extract_text_from_pdf(file_content)
         elif file_type == 'word':
@@ -142,9 +330,52 @@ class ClaudeAIService:
         elif file_type == 'powerpoint':
             return self.extract_text_from_pptx(file_content)
         elif file_type == 'text':
-            return file_content.decode('utf-8', errors='ignore')
+            try:
+                return file_content.decode('utf-8', errors='ignore')
+            except:
+                return file_content.decode('latin-1', errors='ignore')
+        
+        # Imagens - usa Claude Vision
+        elif file_type == 'image':
+            return self.analyze_image(file_content, file_name)
+        
+        # Vídeos - analisa metadados
+        elif file_type == 'video':
+            return self.analyze_video_metadata(file_content, file_name)
+        
+        # Áudio - metadados
+        elif file_type == 'audio':
+            size_mb = len(file_content) / (1024 * 1024)
+            return f"[ÁUDIO]\nNome: {file_name}\nTamanho: {size_mb:.2f} MB\nTipo: Arquivo de áudio\n\nNota: Este é um arquivo de áudio. Para análise completa, seria necessário transcrição de fala."
+        
+        # Arquivos compactados
+        elif file_type == 'archive':
+            return self.analyze_archive(file_content, file_name)
+        
+        # Executáveis e binários
+        elif file_type == 'executable':
+            return self.analyze_executable(file_content, file_name)
+        
+        # CAD, Design, etc.
+        elif file_type in ['cad', 'design']:
+            size_mb = len(file_content) / (1024 * 1024)
+            return f"[{file_type.upper()}]\nNome: {file_name}\nTamanho: {size_mb:.2f} MB\nTipo: Arquivo de design/CAD\n\nNota: Este é um arquivo de design profissional. Contém dados técnicos e gráficos."
+        
+        # Qualquer outro tipo de arquivo
         else:
-            return "Tipo de arquivo não suportado"
+            size_mb = len(file_content) / (1024 * 1024)
+            ext = file_name.split('.')[-1] if '.' in file_name else file_type
+            
+            # Tenta detectar se é texto
+            try:
+                text_content = file_content.decode('utf-8', errors='strict')
+                if len(text_content) > 0 and len(text_content) < 1000000:  # Menos de 1MB de texto
+                    return f"[ARQUIVO DE TEXTO - {ext.upper()}]\n\n{text_content}"
+            except:
+                pass
+            
+            # Se não for texto, retorna informações básicas
+            return f"[ARQUIVO GENÉRICO]\nNome: {file_name}\nExtensão: {ext.upper()}\nTamanho: {size_mb:.2f} MB\nTipo: {file_type}\n\nNota: Este arquivo foi detectado mas não possui um analisador específico. Informações básicas foram extraídas."
 
     def summarize_document(
         self,
@@ -167,7 +398,7 @@ class ClaudeAIService:
         """
         try:
             # Extrai texto do documento
-            extracted_text = self.extract_text_from_file(file_content, file_type)
+            extracted_text = self.extract_text_from_file(file_content, file_type, file_name)
 
             if extracted_text.startswith("Erro"):
                 return {

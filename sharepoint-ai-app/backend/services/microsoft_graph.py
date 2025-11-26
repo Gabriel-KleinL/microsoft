@@ -207,6 +207,7 @@ class MicrosoftGraphService:
                 'driveId': drive['id'],
                 'driveName': drive_name,
                 'lastModified': drive.get('lastModifiedDateTime', ''),
+                'lastModifiedBy': drive.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
                 'type': 'folder',
                 'isFolder': True,
                 'isDrive': True,  # Marca como drive/biblioteca
@@ -276,6 +277,7 @@ class MicrosoftGraphService:
                     'driveId': drive_id,
                     'driveName': '',  # Preenchido depois se necessário
                     'lastModified': item.get('lastModifiedDateTime', ''),
+                    'lastModifiedBy': item.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
                     'type': 'folder',
                     'isFolder': True,
                     'isDrive': False,
@@ -297,6 +299,7 @@ class MicrosoftGraphService:
                     'driveId': drive_id,
                     'driveName': '',
                     'lastModified': item.get('lastModifiedDateTime', ''),
+                    'lastModifiedBy': item.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
                     'type': self._get_file_type(file_name),
                     'isFolder': False,
                     'parentPath': folder_path
@@ -480,6 +483,7 @@ class MicrosoftGraphService:
                                 'driveId': parent_ref.get('driveId', ''),
                                 'driveName': parent_ref.get('name', ''),
                                 'lastModified': resource.get('lastModifiedDateTime', ''),
+                                'lastModifiedBy': resource.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
                                 'type': self._get_file_type(file_name),
                                 'isFolder': False,
                                 'parentPath': resource.get('parentReference', {}).get('path', ''),
@@ -608,6 +612,7 @@ class MicrosoftGraphService:
                             'driveId': drive_id,
                             'driveName': drive_name,
                             'lastModified': item.get('lastModifiedDateTime', ''),
+                            'lastModifiedBy': item.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
                             'type': self._get_file_type(item.get('name', '')),
                             'isFolder': False,
                             'parentPath': folder_path or '',

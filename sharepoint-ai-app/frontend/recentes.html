@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recentes - SharePoint AI</title>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/recentes.css">
+
+    <style type="text/tailwindcss">
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Segoe UI', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary': {
+                            '50': '#eff6ff',
+                            '100': '#dbeafe',
+                            '200': '#bfdbfe',
+                            '300': '#93c5fd',
+                            '400': '#60a5fa',
+                            '500': '#3b82f6',
+                            '600': '#2563eb',
+                            '700': '#1d4ed8',
+                            '800': '#1e40af',
+                            '900': '#1e3a8a',
+                            '950': '#172554',
+                        },
+                        'surface-light': '#ffffff',
+                        'surface-dark': '#111827',
+                        'background-light': '#f9fafb',
+                        'background-dark': '#030712',
+                        'neutral-100': '#f3f4f6',
+                        'neutral-200': '#e5e7eb',
+                        'neutral-300': '#d1d5db',
+                        'neutral-700': '#374151',
+                        'neutral-800': '#1f2937',
+                        'neutral-900': '#111827',
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 font-sans antialiased">
+
+    <div class="flex h-screen overflow-hidden">
+
+        <!-- Sidebar Navigation -->
+        <aside
+            class="w-64 bg-neutral-100 dark:bg-neutral-900 flex flex-col shrink-0 border-r border-neutral-200 dark:border-neutral-800">
+            <div class="h-16 flex items-center px-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 mr-2 text-3xl">hub</span>
+                <span class="text-xl font-semibold">SharePoint AI</span>
+            </div>
+
+            <nav class="flex-1 p-4 overflow-y-auto">
+                <ul class="space-y-1">
+                    <li>
+                        <a href="index.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400">
+                            <span class="material-symbols-outlined text-xl">folder</span>
+                            Meus Documentos
+                        </a>
+                    </li>
+                    <li>
+                        <a href="recentes.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-md bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300">
+                            <span class="material-symbols-outlined text-xl">schedule</span>
+                            Recentes
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="p-4 border-t border-neutral-200 dark:border-neutral-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-primary-200 dark:bg-primary-900 flex items-center justify-center font-bold text-primary-700 dark:text-primary-300"
+                        id="userAvatar">
+                        ?
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userName">Carregando...</p>
+                        <button class="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+                            onclick="handleLogout()">Sair</button>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+
+            <!-- Header -->
+            <header
+                class="h-16 flex items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-800 bg-surface-light dark:bg-surface-dark shrink-0">
+                <div class="flex items-center gap-3">
+                    <span
+                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">schedule</span>
+                    <h1 class="text-2xl font-semibold">Documentos Recentes</h1>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+
+                <!-- Empty State -->
+                <div id="emptyState" style="display: none;"
+                    class="empty-state flex flex-col items-center justify-center py-20 text-center">
+                    <span class="material-symbols-outlined text-gray-400 text-8xl mb-6">history</span>
+                    <h2 class="text-2xl font-semibold mb-3">Nenhum documento recente</h2>
+                    <p class="text-gray-600 dark:text-gray-400 mb-6 max-w-md">
+                        Os documentos que você abrir aparecerão aqui para acesso rápido.
+                    </p>
+                    <a href="index.html"
+                        class="inline-flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-semibold">
+                        <span class="material-symbols-outlined">folder</span>
+                        Ir para Meus Documentos
+                    </a>
+                </div>
+
+                <!-- Recent Documents Grid -->
+                <div id="recentDocumentsGrid" class="card-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Cards will be inserted here via JavaScript -->
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="js/recentes.js"></script>
+</body>
+
+</html>

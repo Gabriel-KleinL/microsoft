@@ -14,7 +14,55 @@ const AppState = {
     summaries: [],
     currentPath: '',
     currentWebUrl: '',
-    navigationHistory: []
+    navigationHistory: [],
+    recentDocuments: []
+};
+
+// ============================================
+// Gerenciador de Recentes
+// ============================================
+
+const RecentDocumentsManager = {
+    STORAGE_KEY: 'sharepoint_ai_recents',
+    MAX_ITEMS: 20,
+
+    get() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            return stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            console.warn('Erro ao ler recentes:', e);
+            return [];
+        }
+    },
+
+    add(doc) {
+        try {
+            let recent = this.get();
+            // Remove se já existe (para mover para o topo)
+            recent = recent.filter(item => item.id !== doc.id);
+
+            // Adiciona no início
+            recent.unshift({
+                ...doc,
+                accessedAt: new Date().toISOString()
+            });
+
+            // Limita tamanho
+            if (recent.length > this.MAX_ITEMS) {
+                recent = recent.slice(0, this.MAX_ITEMS);
+            }
+
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(recent));
+            console.log('Documento adicionado aos recentes:', doc.name);
+        } catch (e) {
+            console.warn('Erro ao salvar recente:', e);
+        }
+    },
+
+    clear() {
+        localStorage.removeItem(this.STORAGE_KEY);
+    }
 };
 
 // ============================================
@@ -114,12 +162,13 @@ function setupEventListeners() {
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
     // Documents
-    document.getElementById('refreshBtn').addEventListener('click', () => {
-        // Força refresh do cache
-        loadDocuments(AppState.currentPath, true);
-    });
+    // document.getElementById('refreshBtn').addEventListener('click', () => {
+    //     // Força refresh do cache
+    //     loadDocuments(AppState.currentPath, true);
+    // });
     document.getElementById('selectAll').addEventListener('click', handleSelectAll);
     document.getElementById('summarizeBtn').addEventListener('click', handleSummarize);
+    document.getElementById('myDocumentsLink').addEventListener('click', () => loadDocuments(null));
 
     // Navigation
     document.getElementById('backBtn').addEventListener('click', handleBack);
@@ -128,8 +177,8 @@ function setupEventListeners() {
     document.getElementById('pathInput').addEventListener('click', handleCopyPath);
 
     // Search
-    document.getElementById('searchInput').addEventListener('input', handleSearch);
-    document.getElementById('searchInput').addEventListener('keydown', handleSearch);
+    // document.getElementById('searchInput').addEventListener('input', handleSearch);
+    // document.getElementById('searchInput').addEventListener('keydown', handleSearch);
 
     // Chat
     const chatSend = document.getElementById('chatSend');
@@ -385,13 +434,15 @@ function renderDocumentsTable(documents) {
                     ${doc.driveName && !isDrive ? `<br><small class="text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-1"><span class="material-symbols-outlined text-xs">folder_special</span>${doc.driveName}</small>` : ''}
                 </td>
                 <td class="p-3 text-gray-600 dark:text-gray-400">
-                    ${doc.childCount} itens
-                </td>
-                <td class="p-3 text-gray-600 dark:text-gray-400">
-                    ${formatDate(doc.lastModified)}
+                    <div class="flex flex-col">
+                        <span class="text-sm">${formatDate(doc.lastModified)}</span>
+                        ${doc.lastModifiedBy ? `<span class="text-xs text-gray-500 dark:text-gray-500">${doc.lastModifiedBy}</span>` : ''}
+                    </div>
                 </td>
                 <td class="p-3 text-right">
-                    <a href="${doc.webUrl}" target="_blank" class="px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600">
+                    <a href="${doc.webUrl}" target="_blank" 
+                       class="open-doc-link px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600"
+                       data-doc-json='${JSON.stringify(doc).replace(/'/g, "&#39;")}'>
                         Abrir
                     </a>
                 </td>
@@ -418,10 +469,16 @@ function renderDocumentsTable(documents) {
                         </div>
                     </div>
                 </td>
-                <td class="p-3 text-gray-600 dark:text-gray-400">${formatDate(doc.lastModified)}</td>
-                <td class="p-3 text-gray-600 dark:text-gray-400">${formatFileSize(doc.size)}</td>
+                <td class="p-3 text-gray-600 dark:text-gray-400">
+                    <div class="flex flex-col">
+                        <span class="text-sm">${formatDate(doc.lastModified)}</span>
+                        ${doc.lastModifiedBy ? `<span class="text-xs text-gray-500 dark:text-gray-500">${doc.lastModifiedBy}</span>` : ''}
+                    </div>
+                </td>
                 <td class="p-3 text-right">
-                    <a href="${doc.webUrl}" target="_blank" class="px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600">
+                    <a href="${doc.webUrl}" target="_blank" 
+                       class="open-doc-link px-3 py-1 text-sm bg-neutral-200 dark:bg-neutral-700 rounded hover:bg-neutral-300 dark:hover:bg-neutral-600"
+                       data-doc-json='${JSON.stringify(doc).replace(/'/g, "&#39;")}'>
                         Abrir
                     </a>
                 </td>
@@ -441,6 +498,21 @@ function renderDocumentsTable(documents) {
         folderEl.addEventListener('click', (e) => {
             const folderPath = e.target.getAttribute('data-folder-path');
             navigateToFolder(folderPath);
+        });
+    });
+
+    // Adiciona listener para links de abrir documento
+    document.querySelectorAll('.open-doc-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            try {
+                const docJson = e.target.getAttribute('data-doc-json');
+                if (docJson) {
+                    const doc = JSON.parse(docJson);
+                    RecentDocumentsManager.add(doc);
+                }
+            } catch (err) {
+                console.error('Erro ao adicionar aos recentes:', err);
+            }
         });
     });
 }
@@ -642,7 +714,10 @@ function updateSelectedDocuments() {
 
     // Atualiza UI
     const count = AppState.selectedDocuments.length;
-    document.getElementById('selectedCount').textContent = `${count} selecionado${count !== 1 ? 's' : ''}`;
+    const selectedCountEl = document.getElementById('selectedCount');
+    if (selectedCountEl) {
+        selectedCountEl.textContent = `${count} selecionado${count !== 1 ? 's' : ''}`;
+    }
 
     const summarizeBtn = document.getElementById('summarizeBtn');
     summarizeBtn.disabled = count === 0;
@@ -723,6 +798,21 @@ async function handleSummarize() {
 
         renderSummaries(data.summaries, data.consolidated_summary);
 
+        // Adiciona documentos resumidos aos recentes COM o resumo
+        data.summaries.forEach(summary => {
+            if (summary.success) {
+                // Encontra o documento correspondente
+                const doc = AppState.selectedDocuments.find(d => d.id === summary.document_id);
+                if (doc) {
+                    RecentDocumentsManager.add({
+                        ...doc,
+                        summary: summary.summary,
+                        hasSummary: true
+                    });
+                }
+            }
+        });
+
         const cacheInfo = data.cache_hits > 0 ? ` (${data.cache_hits} do cache)` : '';
         showToast(`Resumos gerados com sucesso!${cacheInfo}`, 'success');
 
@@ -748,7 +838,9 @@ function renderSummaries(summaries, consolidatedSummary) {
                     <span>Resumo Consolidado (${summaries.length} documentos)</span>
                 </div>
             </div>
-            <div class="summary-content">${consolidatedSummary}</div>
+            <div class="summary-content prose dark:prose-invert max-w-none text-sm">
+                ${formatMarkdown(consolidatedSummary)}
+            </div>
         `;
         container.appendChild(consolidatedDiv);
     }
@@ -769,7 +861,9 @@ function renderSummaries(summaries, consolidatedSummary) {
                         ${getFileTypeLabel(summary.file_type)}
                     </span>
                 </div>
-                <div class="summary-content">${summary.summary}</div>
+                <div class="summary-content prose dark:prose-invert max-w-none text-sm">
+                    ${formatMarkdown(summary.summary)}
+                </div>
             `;
         } else {
             summaryDiv.innerHTML = `
@@ -785,6 +879,45 @@ function renderSummaries(summaries, consolidatedSummary) {
 
         container.appendChild(summaryDiv);
     });
+}
+
+function formatMarkdown(text) {
+    if (!text) return '';
+
+    // Escapa HTML para segurança
+    let html = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    // Headers
+    html = html.replace(/^### (.*$)/gim, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold mt-6 mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>');
+
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Lists
+    // Unordered lists
+    html = html.replace(/^\s*-\s+(.*$)/gim, '<li class="ml-4 list-disc">$1</li>');
+    // Ordered lists
+    html = html.replace(/^\s*\d+\.\s+(.*$)/gim, '<li class="ml-4 list-decimal">$1</li>');
+
+    // Wrap lists in ul/ol (simplificado)
+    // Para uma implementação robusta precisaria de um parser mais complexo, 
+    // mas vamos agrupar LIs adjacentes
+
+    // Quebras de linha
+    html = html.replace(/\n/g, '<br>');
+
+    // Limpa BRs excessivos após headers
+    html = html.replace(/<\/h[1-3]><br>/g, (match) => match.replace('<br>', ''));
+
+    return html;
 }
 
 // ============================================
@@ -975,48 +1108,8 @@ function getFileIconColor(type) {
 }
 
 function showToast(message, type = 'info') {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-
-    const configs = {
-        'success': {
-            bg: 'bg-green-500',
-            icon: 'check_circle',
-            text: 'text-white'
-        },
-        'error': {
-            bg: 'bg-red-500',
-            icon: 'error',
-            text: 'text-white'
-        },
-        'info': {
-            bg: 'bg-blue-500',
-            icon: 'info',
-            text: 'text-white'
-        }
-    };
-
-    const config = configs[type] || configs['info'];
-
-    toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${config.bg} ${config.text} transform transition-all duration-300 opacity-0 translate-x-full`;
-
-    toast.innerHTML = `
-        <span class="material-symbols-outlined">${config.icon}</span>
-        <span class="flex-1">${message}</span>
-    `;
-
-    container.appendChild(toast);
-
-    // Animate in
-    setTimeout(() => {
-        toast.classList.remove('opacity-0', 'translate-x-full');
-    }, 10);
-
-    // Remove toast após 5 segundos
-    setTimeout(() => {
-        toast.classList.add('opacity-0', 'translate-x-full');
-        setTimeout(() => toast.remove(), 300);
-    }, 5000);
+    console.log(`[TOAST] ${type}: ${message}`);
+    // O container de toast foi removido do HTML, então apenas logamos no console
 }
 
 // ============================================
@@ -1172,6 +1265,7 @@ function addThinkingMessage() {
         </div>
         <div class="flex-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-3">
             <p class="text-sm font-semibold mb-2">Sofia está pensando...</p>
+
             <div class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 <div class="thinking-step flex items-center gap-2" data-step="0">
                     <span class="material-symbols-outlined text-lg">hourglass_empty</span>
@@ -1251,15 +1345,15 @@ function addChatMessage(sender, content, sources = [], docsAnalyzed = 0, docsFou
                 </div>
                 <div class="space-y-1">
                     ${sources.map(source => {
-                        const icon = getFileMaterialIcon(source.type);
-                        const iconColor = getFileIconColor(source.type);
-                        return `
+            const icon = getFileMaterialIcon(source.type);
+            const iconColor = getFileIconColor(source.type);
+            return `
                             <a href="${source.webUrl}" target="_blank" class="flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400 hover:underline">
                                 <span class="material-symbols-outlined ${iconColor} text-sm">${icon}</span>
                                 <span>${source.name}</span>
                             </a>
                         `;
-                    }).join('')}
+        }).join('')}
                 </div>
             </div>
         `;

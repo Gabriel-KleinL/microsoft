@@ -1,5 +1,5 @@
 """
-Aplicação Flask - SharePoint + Claude AI Integration
+Aplicação Flask - SharePoint + Multi-AI Integration (Claude + OpenAI)
 """
 from flask import Flask, request, jsonify, redirect, session, send_from_directory
 from flask_cors import CORS
@@ -7,6 +7,7 @@ from flask_caching import Cache
 from config import Config
 from services.microsoft_graph import MicrosoftGraphService
 from services.claude_ai import ClaudeAIService
+from services.openai_service import OpenAIService
 import os
 
 # Inicializa aplicação Flask
@@ -35,10 +36,29 @@ graph_service = MicrosoftGraphService(
     tenant_id=Config.MICROSOFT_TENANT_ID
 )
 
-claude_service = ClaudeAIService(
-    api_key=Config.CLAUDE_API_KEY,
-    model=Config.CLAUDE_MODEL
-)
+# Inicializa serviços de IA baseado no provedor configurado
+ai_service = None
+ai_provider_name = Config.AI_PROVIDER
+
+if ai_provider_name == 'claude':
+    ai_service = ClaudeAIService(
+        api_key=Config.CLAUDE_API_KEY,
+        model=Config.CLAUDE_MODEL
+    )
+    print(f"✓ Usando Claude AI: {Config.CLAUDE_MODEL}")
+elif ai_provider_name == 'openai':
+    ai_service = OpenAIService(
+        api_key=Config.OPENAI_API_KEY,
+        model=Config.OPENAI_MODEL
+    )
+    print(f"✓ Usando OpenAI: {Config.OPENAI_MODEL}")
+else:
+    print(f"✗ Provedor de IA inválido: {ai_provider_name}")
+
+
+def get_ai_service():
+    """Retorna o serviço de IA configurado"""
+    return ai_service
 
 
 # ============================================
@@ -327,8 +347,8 @@ def summarize_documents():
                     file_id=doc_info['id']
                 )
 
-                # Resume documento com Claude
-                summary = claude_service.summarize_document(
+                # Resume documento com IA
+                summary = get_ai_service().summarize_document(
                     file_content=file_content,
                     file_type=doc_info['type'],
                     file_name=doc_info['name']
@@ -336,10 +356,12 @@ def summarize_documents():
 
                 # Salva no cache (30 minutos)
                 if summary.get('success'):
+                    summary['document_id'] = doc_info['id']  # Adiciona ID do documento
                     cache.set(cache_key, summary, timeout=1800)
                     print(f"✓ Cache salvo para resumo: {doc_info['name']}")
 
                 summary['from_cache'] = False
+                summary['document_id'] = doc_info['id']  # Garante que sempre tenha o ID
                 summaries.append(summary)
 
             except Exception as e:
@@ -364,7 +386,7 @@ def summarize_documents():
 
                 consolidated_summary = cache.get(consolidated_cache_key)
                 if not consolidated_summary:
-                    consolidated_summary = claude_service.generate_combined_summary(
+                    consolidated_summary = get_ai_service().generate_combined_summary(
                         individual_summaries=summary_texts,
                         file_names=file_names
                     )
@@ -487,7 +509,7 @@ def chat():
 
                 # Extrai texto
                 print(f"       📝 Extraindo texto...")
-                extracted_text = claude_service.extract_text_from_file(
+                extracted_text = get_ai_service().extract_text_from_file(
                     file_content=file_content,
                     file_type=doc['type']
                 )
@@ -520,9 +542,9 @@ def chat():
 
         print(f"\n✅ Extração concluída: {len(documents_content)} documentos processados com sucesso")
 
-        # Etapa 3: Construir contexto para Claude
+        # Etapa 3: Construir contexto para IA
         print(f"\n{'─'*70}")
-        print("🧠 ETAPA 3: CONSTRUINDO CONTEXTO PARA CLAUDE AI")
+        print(f"🧠 ETAPA 3: CONSTRUINDO CONTEXTO PARA {ai_provider_name.upper()} AI")
         print(f"{'─'*70}")
 
         context_text = ""
@@ -539,9 +561,9 @@ def chat():
         else:
             print("⚠️  Nenhum documento com conteúdo válido")
 
-        # Etapa 4: Criar prompt para Claude com RAG
+        # Etapa 4: Criar prompt para IA com RAG
         print(f"\n{'─'*70}")
-        print("✨ ETAPA 4: GERANDO RESPOSTA COM CLAUDE AI")
+        print(f"✨ ETAPA 4: GERANDO RESPOSTA COM {ai_provider_name.upper()} AI")
         print(f"{'─'*70}")
 
         system_prompt = f"""Você é Sofia, uma assistente IA especializada em ajudar usuários a encontrar informações no SharePoint.
@@ -575,31 +597,46 @@ INSTRUÇÕES:
         })
 
         print(f"📤 Parâmetros da requisição:")
-        print(f"   Modelo: {claude_service.model}")
+        print(f"   Modelo: {get_ai_service().model}")
         print(f"   Max tokens: 2000")
         print(f"   System prompt: {len(system_prompt):,} caracteres")
         print(f"   Mensagens no histórico: {len(messages)}")
         print(f"   Pergunta: \"{user_message}\"")
-        print(f"\n⏳ Aguardando resposta de Claude AI...")
+        print(f"\n⏳ Aguardando resposta de {ai_provider_name.upper()} AI...")
 
-        # Chama Claude AI
+        # Chama IA (funciona para Claude e OpenAI)
         import time
         start_time = time.time()
 
-        response = claude_service.client.messages.create(
-            model=claude_service.model,
-            max_tokens=2000,
-            system=system_prompt,
-            messages=messages
-        )
+        if ai_provider_name == 'claude':
+            # Claude usa client.messages.create
+            response = ai_service.client.messages.create(
+                model=ai_service.model,
+                max_tokens=2000,
+                system=system_prompt,
+                messages=messages
+            )
+            ai_response = response.content[0].text
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+        else:  # openai
+            # OpenAI usa answer_question
+            result = ai_service.answer_question(
+                question=user_message,
+                documents_context=context_text,
+                conversation_history=conversation_history
+            )
+            ai_response = result['response']
+            input_tokens = 0  # OpenAI não retorna tokens facilmente
+            output_tokens = 0
 
         elapsed_time = time.time() - start_time
-        ai_response = response.content[0].text
 
         print(f"✅ Resposta recebida!")
         print(f"   ⏱️  Tempo de resposta: {elapsed_time:.2f}s")
         print(f"   📝 Tamanho da resposta: {len(ai_response)} caracteres")
-        print(f"   📊 Tokens usados: ~{response.usage.input_tokens} input / ~{response.usage.output_tokens} output")
+        if input_tokens > 0:
+            print(f"   📊 Tokens usados: ~{input_tokens} input / ~{output_tokens} output")
         print(f"   💬 Preview: {ai_response[:150].strip()}...")
 
         print(f"\n{'='*70}")
