@@ -63,21 +63,36 @@ class OpenAIService:
     def summarize_document(
         self,
         file_name: str,
-        file_content: str,
+        file_content: bytes,
         file_type: str
-    ) -> str:
+    ) -> Dict:
         """
         Resume um documento usando ChatGPT
 
         Args:
             file_name: Nome do arquivo
-            file_content: Conteúdo do arquivo
+            file_content: Conteúdo do arquivo em bytes
             file_type: Tipo do arquivo (pdf, word, excel, etc)
 
         Returns:
-            Resumo do documento
+            Dicionário com resumo e informações
         """
-        system_prompt = """Você é um assistente especializado em analisar e resumir documentos corporativos.
+        try:
+            # Extrai texto do arquivo usando o método apropriado para cada tipo
+            if isinstance(file_content, bytes):
+                content_str = self.extract_text_from_file(file_content, file_type, file_name)
+
+                # Se a extração retornou erro, trata como falha
+                if content_str.startswith("Erro"):
+                    return {
+                        'success': False,
+                        'error': content_str,
+                        'file_name': file_name
+                    }
+            else:
+                content_str = str(file_content)
+
+            system_prompt = """Você é um assistente especializado em analisar e resumir documentos corporativos.
 Sua tarefa é criar resumos concisos, informativos e bem estruturados.
 
 Diretrizes:
@@ -88,13 +103,25 @@ Diretrizes:
 - Use bullets quando apropriado
 """
 
-        user_prompt = f"""Analise e resuma o seguinte documento:
+            # Limita o conteúdo para evitar exceder o limite de tokens
+            # GPT-4 tem limite de 8192 tokens, precisamos deixar espaço para:
+            # - System prompt (~200 tokens)
+            # - User prompt structure (~150 tokens)
+            # - Response (1000 tokens)
+            # Isso deixa ~6800 tokens para o conteúdo, que equivale a ~3400 caracteres
+            max_content_chars = 3000
+            if len(content_str) > max_content_chars:
+                content_preview = content_str[:max_content_chars] + f"\n\n[... documento truncado - {len(content_str)} caracteres no total ...]"
+            else:
+                content_preview = content_str
+
+            user_prompt = f"""Analise e resuma o seguinte documento:
 
 **Arquivo:** {file_name}
 **Tipo:** {file_type}
 
 **Conteúdo:**
-{file_content[:8000]}  # Limita para não exceder token limit
+{content_preview}
 
 Forneça um resumo estruturado destacando:
 1. Assunto principal
@@ -103,12 +130,28 @@ Forneça um resumo estruturado destacando:
 4. Conclusões ou ações necessárias (se houver)
 """
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
 
-        return self.chat(messages, max_tokens=1000)
+            summary_text = self.chat(messages, max_tokens=800)
+
+            return {
+                'success': True,
+                'file_name': file_name,
+                'file_type': file_type,
+                'summary': summary_text,
+                'char_count': len(content_str),
+                'model_used': self.model
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Erro ao processar documento: {str(e)}",
+                'file_name': file_name
+            }
 
     def consolidate_summaries(
         self,

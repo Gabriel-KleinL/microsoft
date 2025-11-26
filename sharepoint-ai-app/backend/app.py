@@ -4,15 +4,25 @@ Aplicação Flask - SharePoint + Multi-AI Integration (Claude + OpenAI)
 from flask import Flask, request, jsonify, redirect, session, send_from_directory
 from flask_cors import CORS
 from flask_caching import Cache
+from flask_session import Session  # Importa Flask-Session
 from config import Config
 from services.microsoft_graph import MicrosoftGraphService
 from services.claude_ai import ClaudeAIService
 from services.openai_service import OpenAIService
 import os
+import time
 
 # Inicializa aplicação Flask
 app = Flask(__name__, static_folder='../frontend')
 app.secret_key = Config.SECRET_KEY
+
+# Configuração da Sessão (Server-side)
+# Necessário porque os tokens da Microsoft são muito grandes para cookies (limite 4KB)
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = './flask_session'
+app.config['SESSION_PERMANENT'] = False
+Session(app)
+
 CORS(app, supports_credentials=True)
 
 # Configura cache (5 minutos para documentos, 30 minutos para site_id)
@@ -109,8 +119,12 @@ def auth_callback():
         if 'error' in token_result:
             return redirect(f'/?error={token_result["error"]}')
 
-        # Armazena token na sessão
+        # Armazena tokens na sessão
         session['access_token'] = token_result['access_token']
+        session['refresh_token'] = token_result.get('refresh_token')  # Salva refresh token
+        
+        # Calcula quando o token expira (geralmente 1 hora)
+        session['token_expires_at'] = time.time() + token_result.get('expires_in', 3600)
 
         # Obtém informações do usuário
         user_info = graph_service.get_user_info(token_result['access_token'])
@@ -124,24 +138,78 @@ def auth_callback():
         return redirect(f'/?error={str(e)}')
 
 
-@app.route('/api/auth/logout')
-def logout():
-    """Faz logout do usuário"""
-    session.clear()
-    return jsonify({'success': True})
+def get_valid_token():
+    """
+    Obtém um token válido, renovando automaticamente se necessário
+    """
+    # Verifica se tem token
+    if 'access_token' not in session:
+        print("⚠️ Sem access_token na sessão")
+        return None
+    
+    # Verifica se o token expirou (com margem de 5 minutos)
+    if 'token_expires_at' in session:
+        expires_in = session['token_expires_at'] - time.time()
+        print(f"⏳ Token expira em {expires_in:.0f} segundos")
+        
+        if time.time() >= (session['token_expires_at'] - 300):  # 5 min antes de expirar
+            # Token expirou ou está perto de expirar, tenta renovar
+            if 'refresh_token' in session:
+                try:
+                    print("🔄 Token expirando, renovando automaticamente...")
+                    
+                    # Renova o token usando refresh_token
+                    token_result = graph_service.acquire_token_by_refresh_token(
+                        refresh_token=session['refresh_token'],
+                        scopes=Config.SCOPES
+                    )
+                    
+                    if 'access_token' in token_result:
+                        # Atualiza tokens na sessão
+                        session['access_token'] = token_result['access_token']
+                        if 'refresh_token' in token_result:
+                            session['refresh_token'] = token_result['refresh_token']
+                        session['token_expires_at'] = time.time() + token_result.get('expires_in', 3600)
+                        session.modified = True # Força salvamento da sessão
+                        
+                        print("✅ Token renovado com sucesso!")
+                        return token_result['access_token']
+                    else:
+                        print(f"❌ Falha ao renovar token: {token_result.get('error')}")
+                        return None
+                        
+                except Exception as e:
+                    print(f"❌ Erro ao renovar token: {e}")
+                    return None
+            else:
+                print("⚠️ Token expirado e sem refresh_token")
+                return None
+    
+    return session['access_token']
 
 
 @app.route('/api/auth/status')
 def auth_status():
     """Verifica status de autenticação"""
-    if 'access_token' in session:
+    print(f"🔍 Verificando status de autenticação...")
+    print(f"   Session keys: {list(session.keys())}")
+    
+    access_token = get_valid_token()
+    
+    if access_token:
+        print("✅ Usuário autenticado")
         return jsonify({
             'authenticated': True,
-            'user_name': session.get('user_name', ''),
-            'user_email': session.get('user_email', '')
+            'user_name': session.get('user_name'),
+            'user_email': session.get('user_email')
         })
-    else:
-        return jsonify({'authenticated': False})
+    
+    print("❌ Usuário NÃO autenticado")
+    return jsonify({'authenticated': False})
+def logout():
+    """Faz logout do usuário"""
+    session.clear()
+    return jsonify({'success': True})
 
 
 # ============================================
@@ -152,8 +220,8 @@ def auth_status():
 def list_documents():
     """Lista documentos e pastas do SharePoint"""
     try:
-        # Verifica autenticação
-        access_token = session.get('access_token')
+        # Verifica autenticação e renova token se necessário
+        access_token = get_valid_token()
         if not access_token:
             return jsonify({'error': 'Não autenticado'}), 401
 
@@ -192,6 +260,24 @@ def list_documents():
             site_id=site_id,
             folder_path=folder_path
         )
+
+        print(f"📊 Total de itens antes do filtro: {len(items)}")
+
+        # Filtra pastas do sistema apenas na raiz (folder_path é None)
+        if not folder_path:
+            EXCLUDED_FOLDERS = [
+                'PersistedManagedNavigationListEA69B38CE5CE4F1199',
+                'Imagens do Conjunto de Sites',
+                'Documentos do Conjunto de Sites'
+            ]
+            
+            print(f"🚫 Aplicando filtro de pastas excluídas...")
+            items_before = len(items)
+            items = [
+                item for item in items 
+                if item.get('name') not in EXCLUDED_FOLDERS
+            ]
+            print(f"✅ Filtro aplicado: {items_before} -> {len(items)} itens (removidos: {items_before - len(items)})")
 
         # Separa pastas e arquivos para estatísticas
         folders = [item for item in items if item.get('isFolder')]
@@ -236,12 +322,61 @@ def list_documents():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/documents/list')
+def list_documents_alias():
+    """Alias para /api/sharepoint/documents (usado pelo File Picker de Projetos)"""
+    try:
+        access_token = get_valid_token()
+        if not access_token:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        # Obtém ID do site SharePoint
+        site_cache_key = f"site_id_{Config.SHAREPOINT_SITE_URL}"
+        site_id = cache.get(site_cache_key)
+
+        if not site_id:
+            site_id = graph_service.get_sharepoint_site_id(
+                access_token=access_token,
+                site_url=Config.SHAREPOINT_SITE_URL
+            )
+            cache.set(site_cache_key, site_id, timeout=1800)
+
+        # Lista documentos da raiz
+        items = graph_service.list_documents(
+            access_token=access_token,
+            site_id=site_id,
+            folder_path=None
+        )
+
+        # Filtra pastas do sistema que não devem aparecer
+        EXCLUDED_FOLDERS = [
+            'PersistedManagedNavigationListEA69B38CE5CE4F1199',
+            'Imagens do Conjunto de Sites',
+            'Documentos do Conjunto de Sites'
+        ]
+        
+        filtered_items = [
+            item for item in items 
+            if item.get('name') not in EXCLUDED_FOLDERS
+        ]
+
+        return jsonify({
+            'success': True,
+            'items': filtered_items,
+            'count': len(filtered_items)
+        })
+
+    except Exception as e:
+        print(f"❌ Erro ao listar documentos: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/sharepoint/search')
 def search_documents():
     """Busca documentos em todo o SharePoint"""
     try:
-        # Verifica autenticação
-        access_token = session.get('access_token')
+        # Verifica autenticação e renova token se necessário
+        access_token = get_valid_token()
         if not access_token:
             return jsonify({'error': 'Não autenticado'}), 401
 
@@ -310,8 +445,8 @@ def search_documents():
 def summarize_documents():
     """Resume um ou múltiplos documentos usando Claude AI"""
     try:
-        # Verifica autenticação
-        access_token = session.get('access_token')
+        # Verifica autenticação e renova token se necessário
+        access_token = get_valid_token()
         if not access_token:
             return jsonify({'error': 'Não autenticado'}), 401
 
@@ -425,8 +560,8 @@ def clear_cache():
 def chat():
     """Chat com IA usando RAG (Retrieval Augmented Generation)"""
     try:
-        # Verifica autenticação
-        access_token = session.get('access_token')
+        # Verifica autenticação e renova token se necessário
+        access_token = get_valid_token()
         if not access_token:
             return jsonify({'error': 'Não autenticado'}), 401
 
@@ -584,10 +719,14 @@ INSTRUÇÕES:
 
         # Adiciona mensagens anteriores (se houver)
         for msg in conversation_history[-4:]:
-            role = "user" if msg['sender'] == 'user' else "assistant"
+            # Aceita tanto 'sender' quanto 'role' para compatibilidade
+            role = msg.get('role', msg.get('sender', 'user'))
+            if role not in ['user', 'assistant']:
+                role = 'user'
+            
             messages.append({
                 "role": role,
-                "content": msg['content']
+                "content": msg.get('content', '')
             })
 
         # Adiciona mensagem atual

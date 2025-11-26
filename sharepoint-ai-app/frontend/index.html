@@ -156,32 +156,54 @@
     <div id="mainApp" style="display: none;" class="flex h-screen overflow-hidden">
 
         <!-- Sidebar Navigation -->
-        <aside
-            class="w-64 bg-neutral-100 dark:bg-neutral-900 flex flex-col shrink-0 border-r border-neutral-200 dark:border-neutral-800">
-            <div class="h-16 flex items-center px-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
-                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 mr-2 text-3xl">hub</span>
-                <span class="text-xl font-semibold">SharePoint AI</span>
+        <aside id="mainSidebar"
+            class="w-64 bg-neutral-50 dark:bg-neutral-950 flex flex-col shrink-0 border-r border-neutral-200 dark:border-neutral-800 transition-all duration-300">
+
+            <!-- Header -->
+            <div
+                class="h-16 flex items-center justify-between px-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 overflow-hidden">
+                    <span
+                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl shrink-0">hub</span>
+                    <span class="text-lg font-semibold truncate main-sidebar-text">SharePoint AI</span>
+                </div>
+                <button id="toggleMainSidebar"
+                    class="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors shrink-0"
+                    title="Recolher">
+                    <span class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-xl">chevron_left</span>
+                </button>
             </div>
 
+            <!-- Navigation -->
             <nav class="flex-1 p-4 overflow-y-auto">
                 <ul class="space-y-1">
                     <li>
+                        <a href="sofia.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400"
+                            title="Sof-IA">
+                            <span class="material-symbols-outlined text-xl shrink-0">auto_awesome</span>
+                            <span class="main-sidebar-text truncate">Sof-IA</span>
+                        </a>
+                    </li>
+                    <li>
                         <a href="#" id="myDocumentsLink"
-                            class="flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-md bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300">
-                            <span class="material-symbols-outlined text-xl">folder</span>
-                            Meus Documentos
+                            class="flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-md bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300"
+                            title="Meus Documentos">
+                            <span class="material-symbols-outlined text-xl shrink-0">folder</span>
+                            <span class="main-sidebar-text truncate">Meus Documentos</span>
                         </a>
                     </li>
                     <li>
                         <a href="recentes.html"
-                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400">
-                            <span class="material-symbols-outlined text-xl">schedule</span>
-                            Recentes
+                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400"
+                            title="Recentes">
+                            <span class="material-symbols-outlined text-xl shrink-0">schedule</span>
+                            <span class="main-sidebar-text truncate">Recentes</span>
                         </a>
                     </li>
                 </ul>
 
-                <div class="mt-6" id="librariesSection" style="display: none;">
+                <div class="mt-6 main-sidebar-text" id="librariesSection" style="display: none;">
                     <h3 class="px-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Bibliotecas</h3>
                     <ul class="mt-2 space-y-1" id="librariesList">
@@ -190,14 +212,15 @@
                 </div>
             </nav>
 
+            <!-- User Info -->
             <div class="p-4 border-t border-neutral-200 dark:border-neutral-800">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-primary-200 dark:bg-primary-900 flex items-center justify-center font-bold text-primary-700 dark:text-primary-300"
+                    <div class="w-8 h-8 rounded-full bg-primary-200 dark:bg-primary-900 flex items-center justify-center font-bold text-primary-700 dark:text-primary-300 text-sm shrink-0"
                         id="userAvatar">
                         ?
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="text-sm font-semibold truncate" id="userName">Carregando...</p>
+                    <div class="flex-1 min-w-0 main-sidebar-text">
+                        <p class="text-xs font-semibold truncate" id="userName">Carregando...</p>
                         <button class="text-xs text-gray-500 dark:text-gray-400 hover:underline"
                             id="logoutBtn">Sair</button>
                     </div>
@@ -237,10 +260,11 @@
                                 </button>
                                 <div
                                     class="flex-1 flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-neutral-900 rounded border border-neutral-300 dark:border-neutral-600">
-                                    <span class="material-symbols-outlined text-gray-500 text-lg">folder_open</span>
-                                    <input id="pathInput" type="text" readonly value="/"
-                                        class="flex-1 bg-transparent border-none outline-none text-sm text-gray-700 dark:text-gray-300 cursor-text"
-                                        title="Clique para copiar o caminho" />
+                                    <span id="pathIcon"
+                                        class="material-symbols-outlined text-gray-500 text-lg">folder_open</span>
+                                    <input id="pathInput" type="text" value="/"
+                                        class="flex-1 bg-transparent border-none outline-none text-sm text-gray-700 dark:text-gray-300"
+                                        placeholder="Digite para pesquisar ou navegue pelas pastas" />
                                 </div>
                                 <button id="copyPathBtn"
                                     class="p-1.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700"

@@ -20,7 +20,7 @@ class ClaudeAIService:
 
     def extract_text_from_pdf(self, file_content: bytes) -> str:
         """
-        Extrai texto de arquivo PDF
+        Extrai texto de arquivo PDF usando múltiplos métodos
 
         Args:
             file_content: Conteúdo do arquivo PDF em bytes
@@ -28,17 +28,59 @@ class ClaudeAIService:
         Returns:
             Texto extraído do PDF
         """
+        text_result = ""
+
+        # Método 1: Tenta PyPDF2 (rápido)
         try:
             pdf_file = io.BytesIO(file_content)
             pdf_reader = PyPDF2.PdfReader(pdf_file)
 
             text = []
             for page in pdf_reader.pages:
-                text.append(page.extract_text())
+                page_text = page.extract_text()
+                if page_text:
+                    text.append(page_text)
 
-            return '\n'.join(text)
+            text_result = '\n'.join(text)
+
+            print(f"📄 PyPDF2: Extraído {len(text_result)} caracteres de {len(pdf_reader.pages)} páginas")
+
+            # Se conseguiu extrair texto suficiente, retorna
+            if len(text_result.strip()) > 50:
+                print(f"✅ PyPDF2 sucesso!")
+                return text_result
         except Exception as e:
-            return f"Erro ao extrair texto do PDF: {str(e)}"
+            print(f"❌ PyPDF2 falhou: {str(e)}")
+
+        # Método 2: Tenta pdfplumber (mais robusto)
+        try:
+            import pdfplumber
+
+            pdf_file = io.BytesIO(file_content)
+            with pdfplumber.open(pdf_file) as pdf:
+                text = []
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text.append(page_text)
+
+                text_result = '\n'.join(text)
+
+                print(f"📄 pdfplumber: Extraído {len(text_result)} caracteres de {len(pdf.pages)} páginas")
+
+                # Se conseguiu extrair texto suficiente, retorna
+                if len(text_result.strip()) > 50:
+                    print(f"✅ pdfplumber sucesso!")
+                    return text_result
+        except Exception as e:
+            print(f"❌ pdfplumber falhou: {str(e)}")
+
+        # Se ambos os métodos falharam ou não extraíram texto suficiente
+        if len(text_result.strip()) < 50:
+            print("⚠️ PDF com pouco texto extraído. Retornando None para fallback.")
+            return None
+
+        return text_result
 
     def extract_text_from_docx(self, file_content: bytes) -> str:
         """
@@ -70,15 +112,46 @@ class ClaudeAIService:
 
     def extract_text_from_xlsx(self, file_content: bytes) -> str:
         """
-        Extrai texto de arquivo Excel (.xlsx)
+        Extrai texto de arquivo Excel (.xlsx) ou CSV
 
         Args:
-            file_content: Conteúdo do arquivo XLSX em bytes
+            file_content: Conteúdo do arquivo XLSX/CSV em bytes
 
         Returns:
             Texto extraído da planilha
         """
         try:
+            # Tenta primeiro como CSV (arquivo de texto)
+            try:
+                csv_text = file_content.decode('utf-8', errors='ignore')
+                # Verifica se parece ser um CSV válido (tem linhas com delimitadores)
+                if ',' in csv_text or ';' in csv_text or '\t' in csv_text:
+                    lines = csv_text.split('\n')
+                    if len(lines) > 0:
+                        # É um CSV válido
+                        import csv
+                        import io as csv_io
+
+                        # Detecta o delimitador
+                        delimiter = ','
+                        if ';' in lines[0]:
+                            delimiter = ';'
+                        elif '\t' in lines[0]:
+                            delimiter = '\t'
+
+                        # Processa o CSV
+                        text = ["\n=== Planilha CSV ===\n"]
+                        csv_reader = csv.reader(csv_io.StringIO(csv_text), delimiter=delimiter)
+                        for row in csv_reader:
+                            row_text = '\t'.join([str(cell) for cell in row])
+                            if row_text.strip():
+                                text.append(row_text)
+
+                        return '\n'.join(text)
+            except:
+                pass
+
+            # Se não for CSV, tenta como XLSX (arquivo binário)
             excel_file = io.BytesIO(file_content)
             workbook = openpyxl.load_workbook(excel_file, data_only=True)
 
@@ -94,7 +167,7 @@ class ClaudeAIService:
 
             return '\n'.join(text)
         except Exception as e:
-            return f"Erro ao extrair texto do Excel: {str(e)}"
+            return f"Erro ao extrair texto do Excel/CSV: {str(e)}"
 
     def extract_text_from_pptx(self, file_content: bytes) -> str:
         """
@@ -406,14 +479,11 @@ class ClaudeAIService:
                     'error': extracted_text,
                     'file_name': file_name
                 }
-
-            # Limita o texto se for muito grande (Claude tem limite de tokens)
-            max_chars = 100000  # Aproximadamente 25k tokens
-            if len(extracted_text) > max_chars:
-                extracted_text = extracted_text[:max_chars] + "\n\n[... documento truncado ...]"
-
-            # Prompt para resumo em português
-            prompt = f"""Você é um assistente especializado em análise de documentos.
+            
+            messages = []
+            
+            # Base prompt
+            base_prompt = f"""Você é um assistente especializado em análise de documentos.
 
 Analise o seguinte documento e forneça:
 
@@ -424,18 +494,56 @@ Analise o seguinte documento e forneça:
 
 Documento: {file_name}
 
-Conteúdo:
-{extracted_text}
-
 Por favor, forneça a análise em português do Brasil, de forma clara e profissional."""
+
+            # Lógica para PDF direto (se extração de texto falhou ou retornou None)
+            if (extracted_text is None or len(extracted_text) < 50) and file_type == 'pdf':
+                print("🔄 Usando fallback de PDF direto para Claude (Vision/PDF)...")
+                pdf_base64 = base64.b64encode(file_content).decode('utf-8')
+                
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "document",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "application/pdf",
+                                    "data": pdf_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": base_prompt
+                            }
+                        ]
+                    }
+                ]
+                # Define um texto placeholder para contagem de caracteres
+                extracted_text = "[PDF processado diretamente via Claude Vision]"
+                
+            else:
+                # Fluxo normal de texto
+                if extracted_text is None:
+                    extracted_text = ""
+                    
+                # Limita o texto se for muito grande
+                max_chars = 100000
+                if len(extracted_text) > max_chars:
+                    extracted_text = extracted_text[:max_chars] + "\n\n[... documento truncado ...]"
+                
+                full_prompt = base_prompt + f"\n\nConteúdo:\n{extracted_text}"
+                
+                messages = [
+                    {"role": "user", "content": full_prompt}
+                ]
 
             # Chama Claude API
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=2000,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=messages
             )
 
             summary = message.content[0].text

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sof-IA - SharePoint AI</title>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+        rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+    <style type="text/tailwindcss">
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .conversation-item:hover {
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .conversation-item.active {
+            background-color: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+        }
+
+        /* Animação de digitação */
+        .typing-indicator {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #3b82f6;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Segoe UI', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary': {
+                            '50': '#eff6ff',
+                            '100': '#dbeafe',
+                            '200': '#bfdbfe',
+                            '300': '#93c5fd',
+                            '400': '#60a5fa',
+                            '500': '#3b82f6',
+                            '600': '#2563eb',
+                            '700': '#1d4ed8',
+                            '800': '#1e40af',
+                            '900': '#1e3a8a',
+                            '950': '#172554',
+                        },
+                        'surface-light': '#ffffff',
+                        'surface-dark': '#111827',
+                        'background-light': '#f9fafb',
+                        'background-dark': '#030712',
+                        'neutral-100': '#f3f4f6',
+                        'neutral-200': '#e5e7eb',
+                        'neutral-300': '#d1d5db',
+                        'neutral-700': '#374151',
+                        'neutral-800': '#1f2937',
+                        'neutral-900': '#111827',
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 font-sans antialiased">
+
+    <div class="flex h-screen overflow-hidden">
+
+        <!-- Sidebar Principal - Navegação -->
+        <aside id="mainSidebar"
+            class="w-64 bg-neutral-50 dark:bg-neutral-950 flex flex-col shrink-0 border-r border-neutral-200 dark:border-neutral-800 transition-all duration-300">
+
+            <!-- Header -->
+            <div
+                class="h-16 flex items-center justify-between px-4 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 overflow-hidden">
+                    <span
+                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl shrink-0">hub</span>
+                    <span class="text-lg font-semibold truncate main-sidebar-text">SharePoint AI</span>
+                </div>
+                <button id="toggleMainSidebar"
+                    class="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors shrink-0"
+                    title="Recolher">
+                    <span class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-xl">chevron_left</span>
+                </button>
+            </div>
+
+            <!-- Navigation Links -->
+            <nav class="flex-1 p-4 overflow-y-auto">
+                <ul class="space-y-1">
+                    <li>
+                        <a href="sofia.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-md bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300"
+                            title="Sof-IA">
+                            <span class="material-symbols-outlined text-xl shrink-0">auto_awesome</span>
+                            <span class="main-sidebar-text truncate">Sof-IA</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="index.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400"
+                            title="Meus Documentos">
+                            <span class="material-symbols-outlined text-xl shrink-0">folder</span>
+                            <span class="main-sidebar-text truncate">Meus Documentos</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="recentes.html"
+                            class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400"
+                            title="Recentes">
+                            <span class="material-symbols-outlined text-xl shrink-0">schedule</span>
+                            <span class="main-sidebar-text truncate">Recentes</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- User Info -->
+            <div class="p-4 border-t border-neutral-200 dark:border-neutral-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-full bg-primary-200 dark:bg-primary-900 flex items-center justify-center font-bold text-primary-700 dark:text-primary-300 text-sm shrink-0"
+                        id="userAvatar">
+                        ?
+                    </div>
+                    <div class="flex-1 min-w-0 main-sidebar-text">
+                        <p class="text-xs font-semibold truncate" id="userName">Carregando...</p>
+                        <button class="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+                            onclick="handleLogout()">Sair</button>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Sidebar Secundária - Conversas e Projetos -->
+        <aside id="conversationsSidebar"
+            class="w-72 bg-neutral-100 dark:bg-neutral-900 flex flex-col shrink-0 border-r border-neutral-200 dark:border-neutral-800 transition-all duration-300">
+
+
+            <!-- Tabs: Conversas e Projetos -->
+            <div class="flex border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900">
+                <button id="tabConversations"
+                    class="flex-1 px-4 py-3 text-sm font-semibold text-primary-600 dark:text-primary-400 border-b-2 border-primary-600 dark:border-primary-400">
+                    Conversas
+                </button>
+                <button id="tabProjects"
+                    class="flex-1 px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                    Projetos
+                </button>
+            </div>
+
+            <!-- Lista de Conversas -->
+            <div id="conversationsPanel" class="flex-1 overflow-y-auto p-2">
+                <!-- As conversas serão inseridas aqui via JavaScript -->
+                <div id="conversationsList" class="space-y-1">
+                    <!-- Conversas dinâmicas -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="conversationsEmptyState"
+                    class="flex flex-col items-center justify-center py-12 px-4 text-center" style="display: none;">
+                    <span class="material-symbols-outlined text-gray-400 text-6xl mb-4">chat</span>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        Nenhuma conversa ainda.<br>
+                        Comece um novo chat!
+                    </p>
+                </div>
+            </div>
+
+            <!-- Lista de Projetos -->
+            <div id="projectsPanel" class="flex-1 overflow-y-auto p-2" style="display: none;">
+                <div id="projectsList" class="space-y-1">
+                    <!-- Projetos dinâmicos -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="projectsEmptyState" class="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <span class="material-symbols-outlined text-gray-400 text-6xl mb-4">folder_special</span>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        Nenhum projeto criado ainda.
+                    </p>
+                    <button id="newProjectBtn"
+                        class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-semibold flex items-center gap-2">
+                        <span class="material-symbols-outlined text-lg">add</span>
+                        Novo Projeto
+                    </button>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Área Principal do Chat -->
+        <main class="flex-1 flex flex-col overflow-hidden bg-white dark:bg-neutral-900">
+
+            <!-- Header do Chat -->
+            <header
+                class="h-16 flex items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
+                <div class="flex items-center gap-3">
+                    <span
+                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">auto_awesome</span>
+                    <h1 class="text-xl font-semibold" id="chatTitle">Sof-IA</h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="clearChatBtn"
+                        class="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                        title="Limpar conversa">
+                        <span class="material-symbols-outlined text-gray-600 dark:text-gray-400">delete</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Chat Messages Area -->
+            <div id="chatMessagesArea" class="flex-1 overflow-y-auto">
+
+                <!-- Welcome State -->
+                <div id="welcomeState" class="flex flex-col items-center justify-center h-full px-6 py-12">
+                    <div class="max-w-3xl w-full space-y-8 text-center">
+                        <div>
+                            <span
+                                class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-8xl mb-6 inline-block">auto_awesome</span>
+                            <h1 class="text-4xl font-bold mb-4">Olá! Sou a Sof-IA</h1>
+                            <p class="text-lg text-gray-600 dark:text-gray-400">
+                                Sua assistente de IA para documentos SharePoint.<br>
+                                Como posso ajudar você hoje?
+                            </p>
+                        </div>
+
+                        <!-- Suggestion Cards -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                            <button
+                                class="suggestion-card text-left p-4 rounded-lg border-2 border-neutral-200 dark:border-neutral-700 hover:border-primary-500 dark:hover:border-primary-500 transition-all">
+                                <div class="flex items-start gap-3">
+                                    <span
+                                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">description</span>
+                                    <div>
+                                        <h3 class="font-semibold mb-1">Resumir documentos</h3>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400">Analise e resuma documentos
+                                            do SharePoint</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button
+                                class="suggestion-card text-left p-4 rounded-lg border-2 border-neutral-200 dark:border-neutral-700 hover:border-primary-500 dark:hover:border-primary-500 transition-all">
+                                <div class="flex items-start gap-3">
+                                    <span
+                                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">search</span>
+                                    <div>
+                                        <h3 class="font-semibold mb-1">Buscar informações</h3>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400">Encontre dados específicos
+                                            nos seus arquivos</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button
+                                class="suggestion-card text-left p-4 rounded-lg border-2 border-neutral-200 dark:border-neutral-700 hover:border-primary-500 dark:hover:border-primary-500 transition-all">
+                                <div class="flex items-start gap-3">
+                                    <span
+                                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">analytics</span>
+                                    <div>
+                                        <h3 class="font-semibold mb-1">Análise de dados</h3>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400">Extraia insights de
+                                            planilhas e relatórios</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button
+                                class="suggestion-card text-left p-4 rounded-lg border-2 border-neutral-200 dark:border-neutral-700 hover:border-primary-500 dark:hover:border-primary-500 transition-all">
+                                <div class="flex items-start gap-3">
+                                    <span
+                                        class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">lightbulb</span>
+                                    <div>
+                                        <h3 class="font-semibold mb-1">Ideias e sugestões</h3>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400">Obtenha recomendações
+                                            baseadas em contexto</p>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messages Container -->
+                <div id="chatMessages" class="hidden px-6 py-6 space-y-6 max-w-4xl mx-auto w-full">
+                    <!-- Mensagens serão inseridas aqui -->
+                </div>
+
+            </div>
+
+            <!-- Input Area -->
+            <div class="border-t border-neutral-200 dark:border-neutral-800 p-4 bg-white dark:bg-neutral-900">
+                <div class="max-w-4xl mx-auto">
+                    <!-- Model Selector -->
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">Modelo:</span>
+                        <div class="flex gap-2">
+                            <button id="modelClaude" onclick="selectModel('claude')"
+                                class="model-selector px-3 py-1 text-xs font-medium rounded-lg bg-primary-600 text-white">
+                                Claude
+                            </button>
+                            <button id="modelGPT" onclick="selectModel('gpt')"
+                                class="model-selector px-3 py-1 text-xs font-medium rounded-lg bg-neutral-200 dark:bg-neutral-700 text-gray-700 dark:text-gray-300">
+                                GPT
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="relative">
+                        <textarea id="chatInput" rows="1" placeholder="Envie uma mensagem para Sof-IA..."
+                            class="w-full px-4 py-3 pr-12 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none max-h-32"></textarea>
+                        <button id="chatSendBtn"
+                            class="absolute right-2 bottom-2 p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span class="material-symbols-outlined">send</span>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                        Sof-IA pode cometer erros. Considere verificar informações importantes.
+                    </p>
+                </div>
+            </div>
+
+        </main>
+
+    </div>
+
+    <script src="js/sofia.js"></script>
+</body>
+
+</html>

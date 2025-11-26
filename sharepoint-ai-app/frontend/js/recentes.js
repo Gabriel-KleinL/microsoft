@@ -7,6 +7,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     loadRecentDocuments();
+    setupSidebarToggle();
+
+    // Event listener para botão de limpar histórico
+    document.getElementById('clearHistoryBtn').addEventListener('click', handleClearHistory);
 });
 
 async function checkAuthStatus() {
@@ -316,4 +320,131 @@ function showFullSummary(docId) {
     `;
 
     document.body.appendChild(modal);
+}
+
+// Função para limpar histórico
+async function handleClearHistory() {
+    // Confirma com o usuário
+    if (!confirm('Deseja realmente limpar todo o histórico de documentos recentes? Esta ação não pode ser desfeita.')) {
+        return;
+    }
+
+    try {
+        // Limpa histórico local
+        RecentDocumentsManager.clear();
+
+        // Limpa cache do servidor também
+        await fetch('/api/cache/clear', {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        // Mostra toast de sucesso (cria função showToast se não existir)
+        showToast('Histórico limpo com sucesso!', 'success');
+
+        // Recarrega a página para mostrar o estado vazio
+        setTimeout(() => {
+            loadRecentDocuments();
+        }, 500);
+
+    } catch (error) {
+        console.error('Erro ao limpar histórico:', error);
+        showToast('Histórico local limpo, mas houve erro ao conectar com o servidor', 'error');
+
+        // Recarrega a página mesmo com erro no servidor
+        setTimeout(() => {
+            loadRecentDocuments();
+        }, 500);
+    }
+}
+
+// Função auxiliar para mostrar toasts
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer') || createToastContainer();
+    const toast = document.createElement('div');
+
+    const configs = {
+        'success': {
+            bg: 'bg-green-500',
+            icon: 'check_circle',
+            text: 'text-white'
+        },
+        'error': {
+            bg: 'bg-red-500',
+            icon: 'error',
+            text: 'text-white'
+        },
+        'info': {
+            bg: 'bg-blue-500',
+            icon: 'info',
+            text: 'text-white'
+        }
+    };
+
+    const config = configs[type] || configs['info'];
+
+    toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${config.bg} ${config.text} transform transition-all duration-300 opacity-0 translate-x-full`;
+
+    toast.innerHTML = `
+        <span class="material-symbols-outlined">${config.icon}</span>
+        <span class="flex-1">${message}</span>
+    `;
+
+    container.appendChild(toast);
+
+    // Animate in
+    setTimeout(() => {
+        toast.classList.remove('opacity-0', 'translate-x-full');
+    }, 10);
+
+    // Remove toast após 5 segundos
+    setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-full');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'fixed top-4 right-4 z-50 space-y-2';
+    document.body.appendChild(container);
+    return container;
+}
+
+// ============================================
+// Sidebar Toggle (Colapsar/Expandir)
+// ============================================
+
+function setupSidebarToggle() {
+    const mainSidebar = document.getElementById('mainSidebar');
+    const toggleBtn = document.getElementById('toggleMainSidebar');
+
+    if (!toggleBtn || !mainSidebar) return;
+
+    let sidebarCollapsed = false;
+
+    toggleBtn.addEventListener('click', () => {
+        sidebarCollapsed = !sidebarCollapsed;
+
+        if (sidebarCollapsed) {
+            mainSidebar.classList.remove('w-64');
+            mainSidebar.classList.add('w-16');
+            // Oculta textos
+            document.querySelectorAll('.main-sidebar-text').forEach(el => {
+                el.style.display = 'none';
+            });
+            // Inverte ícone
+            toggleBtn.querySelector('.material-symbols-outlined').textContent = 'chevron_right';
+        } else {
+            mainSidebar.classList.remove('w-16');
+            mainSidebar.classList.add('w-64');
+            // Mostra textos
+            document.querySelectorAll('.main-sidebar-text').forEach(el => {
+                el.style.display = '';
+            });
+            // Inverte ícone
+            toggleBtn.querySelector('.material-symbols-outlined').textContent = 'chevron_left';
+        }
+    });
 }

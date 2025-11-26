@@ -150,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     setupEventListeners();
     checkAuthCallback();
+    setupSidebarToggle();
 });
 
 // ============================================
@@ -174,9 +175,66 @@ function setupEventListeners() {
     document.getElementById('backBtn').addEventListener('click', handleBack);
     document.getElementById('copyPathBtn').addEventListener('click', handleCopyPath);
     document.getElementById('openInSharePointBtn').addEventListener('click', handleOpenInSharePoint);
-    document.getElementById('pathInput').addEventListener('click', handleCopyPath);
 
-    // Search
+    // Path Input - Dual purpose: Path display and Search
+    const pathInput = document.getElementById('pathInput');
+    const pathIcon = document.getElementById('pathIcon');
+    let searchTimeout;
+
+    pathInput.addEventListener('focus', () => {
+        // Limpa o campo quando focar para facilitar a pesquisa
+        if (pathInput.value === '/' || pathInput.value === AppState.currentPath) {
+            pathInput.value = '';
+        }
+        pathIcon.textContent = 'search';
+    });
+
+    pathInput.addEventListener('blur', () => {
+        // Se estiver vazio, volta para o caminho atual
+        if (!pathInput.value.trim()) {
+            pathInput.value = AppState.currentPath || '/';
+            pathIcon.textContent = 'folder_open';
+        }
+    });
+
+    pathInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim();
+
+        // Cancela busca anterior
+        clearTimeout(searchTimeout);
+
+        if (!query || query === '/') {
+            // Se vazio ou apenas "/", volta para listagem normal
+            pathIcon.textContent = 'folder_open';
+            loadDocuments();
+            return;
+        }
+
+        // Muda ícone para pesquisa
+        pathIcon.textContent = 'search';
+
+        // Debounce: espera 500ms após parar de digitar
+        searchTimeout = setTimeout(async () => {
+            await performSearch(query);
+        }, 500);
+    });
+
+    pathInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            clearTimeout(searchTimeout);
+            const query = e.target.value.trim();
+            if (query && query !== '/') {
+                performSearch(query);
+            }
+        } else if (e.key === 'Escape') {
+            pathInput.value = AppState.currentPath || '/';
+            pathInput.blur();
+            pathIcon.textContent = 'folder_open';
+            loadDocuments();
+        }
+    });
+
+    // Search (mantém comentado pois agora usa pathInput)
     // document.getElementById('searchInput').addEventListener('input', handleSearch);
     // document.getElementById('searchInput').addEventListener('keydown', handleSearch);
 
@@ -199,6 +257,9 @@ function setupEventListeners() {
         chatInput.style.height = 'auto';
         chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
     });
+
+    // Expand AI Panel
+    document.getElementById('expandAIPanel').addEventListener('click', handleExpandAIPanel);
 }
 
 // ============================================
@@ -599,6 +660,38 @@ function handleOpenInSharePoint() {
         // URL base do SharePoint
         const baseUrl = 'https://fiofortei9automacaogroup.sharepoint.com/sites/Documentos';
         window.open(baseUrl, '_blank');
+    }
+}
+
+async function handleClearCache() {
+    // Confirma com o usuário
+    if (!confirm('Deseja realmente limpar todo o cache? Isso irá remover documentos e resumos armazenados localmente e no servidor.')) {
+        return;
+    }
+
+    try {
+        // Limpa cache local (navegador)
+        CacheManager.clear();
+
+        // Limpa cache do servidor
+        const response = await fetch('/api/cache/clear', {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            showToast('Cache limpo com sucesso! Recarregando...', 'success');
+
+            // Recarrega os documentos após 1 segundo
+            setTimeout(() => {
+                loadDocuments(null, true);
+            }, 1000);
+        } else {
+            showToast('Cache local limpo, mas houve erro ao limpar cache do servidor', 'error');
+        }
+    } catch (error) {
+        console.error('Erro ao limpar cache:', error);
+        showToast('Cache local limpo, mas houve erro ao conectar com o servidor', 'error');
     }
 }
 
@@ -1018,6 +1111,11 @@ async function performGlobalSearch(searchTerm) {
         console.error('Erro na busca global:', error);
         showToast('Erro ao buscar documentos', 'error');
     }
+}
+
+// Alias para usar no pathInput
+async function performSearch(query) {
+    return await performGlobalSearch(query);
 }
 
 function clearSearch() {
@@ -1446,4 +1544,183 @@ function getFileIcon(type) {
     return icons[type] || '📄';
 }
 
+// ============================================
+// Expandir Chat IA em Modal
+// ============================================
+
+function handleExpandAIPanel() {
+    // Clona o conteúdo atual do chat
+    const chatMessages = document.getElementById('chatMessages').innerHTML;
+    const chatInput = document.getElementById('chatInput').value;
+
+    // Cria o modal fullscreen
+    const modal = document.createElement('div');
+    modal.id = 'expandedChatModal';
+    modal.className = 'fixed inset-0 bg-background-light dark:bg-background-dark z-50 flex flex-col';
+
+    modal.innerHTML = `
+        <!-- Header -->
+        <header class="h-16 flex items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-800 bg-surface-light dark:bg-surface-dark shrink-0">
+            <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">auto_awesome</span>
+                <h1 class="text-2xl font-semibold">Sof-IA - Chat Expandido</h1>
+            </div>
+            <button id="closeExpandedChat" class="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Fechar">
+                <span class="material-symbols-outlined text-2xl">close</span>
+            </button>
+        </header>
+
+        <!-- Chat Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <div class="flex-1 overflow-y-auto p-6" id="expandedChatMessages">
+                ${chatMessages}
+            </div>
+
+            <!-- Input Area -->
+            <div class="border-t border-neutral-200 dark:border-neutral-800 p-4 bg-surface-light dark:bg-surface-dark">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex gap-2">
+                        <textarea id="expandedChatInput" rows="3" placeholder="Pergunte algo sobre seus documentos..."
+                            class="flex-1 px-4 py-3 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                        >${chatInput}</textarea>
+                        <button id="expandedChatSend"
+                            class="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2 font-semibold">
+                            <span class="material-symbols-outlined">send</span>
+                            Enviar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event listeners do modal
+    const closeBtn = document.getElementById('closeExpandedChat');
+    const sendBtn = document.getElementById('expandedChatSend');
+    const input = document.getElementById('expandedChatInput');
+
+    // Fechar modal
+    closeBtn.addEventListener('click', () => {
+        // Sincroniza mensagens de volta para o chat principal
+        const expandedMessages = document.getElementById('expandedChatMessages').innerHTML;
+        document.getElementById('chatMessages').innerHTML = expandedMessages;
+
+        // Sincroniza input
+        document.getElementById('chatInput').value = input.value;
+
+        // Remove modal
+        modal.remove();
+    });
+
+    // Enviar mensagem no modal
+    const sendExpandedMessage = async () => {
+        const message = input.value.trim();
+        if (!message || ChatState.isProcessing) return;
+
+        // Sincroniza com o chat principal
+        document.getElementById('chatInput').value = message;
+
+        // Limpa input do modal
+        input.value = '';
+        input.style.height = 'auto';
+
+        // Envia mensagem
+        await sendChatMessage();
+
+        // Atualiza mensagens no modal
+        setTimeout(() => {
+            document.getElementById('expandedChatMessages').innerHTML =
+                document.getElementById('chatMessages').innerHTML;
+
+            // Scroll para o final
+            const messagesContainer = document.getElementById('expandedChatMessages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 100);
+    };
+
+    sendBtn.addEventListener('click', sendExpandedMessage);
+
+    // Enter para enviar (Shift+Enter para quebra de linha)
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendExpandedMessage();
+        }
+    });
+
+    // Auto-resize textarea
+    input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+    });
+
+    // Focus no input
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    // Scroll para o final das mensagens
+    const messagesContainer = document.getElementById('expandedChatMessages');
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
 // Chat widget já está integrado no template, não precisa inicializar
+
+// ============================================
+// Sidebar Toggle (Colapsar/Expandir)
+// ============================================
+
+function setupSidebarToggle() {
+    const mainSidebar = document.getElementById('mainSidebar');
+    const toggleBtn = document.getElementById('toggleMainSidebar');
+
+    if (!toggleBtn || !mainSidebar) return;
+
+    let sidebarCollapsed = false;
+
+    toggleBtn.addEventListener('click', () => {
+        sidebarCollapsed = !sidebarCollapsed;
+
+        if (sidebarCollapsed) {
+            mainSidebar.classList.remove('w-64');
+            mainSidebar.classList.add('w-16');
+            // Oculta textos
+            document.querySelectorAll('.main-sidebar-text').forEach(el => {
+                el.style.display = 'none';
+            });
+            // Inverte ícone
+            toggleBtn.querySelector('.material-symbols-outlined').textContent = 'chevron_right';
+        } else {
+            mainSidebar.classList.remove('w-16');
+            mainSidebar.classList.add('w-64');
+            // Mostra textos
+            document.querySelectorAll('.main-sidebar-text').forEach(el => {
+                el.style.display = '';
+            });
+            // Inverte ícone
+            toggleBtn.querySelector('.material-symbols-outlined').textContent = 'chevron_left';
+        }
+    });
+}
+
+// ============================================
+// Inicialização
+// ============================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Verifica callback de autenticação (query params)
+    checkAuthCallback();
+
+    // Verifica status de autenticação
+    checkAuthStatus();
+
+    // Setup da sidebar
+    setupSidebarToggle();
+
+    // Setup do botão de login
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) {
+        loginBtn.addEventListener('click', handleLogin);
+    }
+});

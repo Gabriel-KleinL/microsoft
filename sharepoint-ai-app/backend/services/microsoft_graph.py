@@ -3,6 +3,7 @@ Serviço para interação com Microsoft Graph API e SharePoint
 """
 import requests
 import msal
+import re
 from typing import Dict, List, Optional
 import io
 
@@ -68,6 +69,34 @@ class MicrosoftGraphService:
             code=auth_code,
             scopes=scopes,
             redirect_uri=redirect_uri
+        )
+
+        return result
+
+    def acquire_token_by_refresh_token(
+        self,
+        refresh_token: str,
+        scopes: List[str]
+    ) -> Optional[Dict]:
+        """
+        Renova token de acesso usando refresh token
+
+        Args:
+            refresh_token: Refresh token obtido anteriormente
+            scopes: Lista de permissões
+
+        Returns:
+            Dicionário com novo token de acesso
+        """
+        app = msal.ConfidentialClientApplication(
+            self.client_id,
+            authority=self.authority,
+            client_credential=self.client_secret
+        )
+
+        result = app.acquire_token_by_refresh_token(
+            refresh_token=refresh_token,
+            scopes=scopes
         )
 
         return result
@@ -260,18 +289,27 @@ class MicrosoftGraphService:
         total_folders_found = 0
 
         for item in items:
-            # Verifica se é pasta
-            if 'folder' in item:
+            name = item.get('name', '')
+
+            # Detecta se tem extensão real (não apenas um ponto qualquer no nome)
+            # Uma extensão real tem um ponto seguido de 2-5 caracteres no final do nome
+            has_extension = bool(re.search(r'\.[a-zA-Z0-9]{1,5}$', name))
+
+            # Regra do usuário: Se não tem extensão, é pasta (mesmo que a API diga que é arquivo)
+            # Também considera pasta se tiver a propriedade 'folder' ou 'package'
+            is_folder = 'folder' in item or 'package' in item or not has_extension
+
+            if is_folder:
                 # Monta o novo caminho para navegação
                 new_path = f"drive:{drive_id}"
                 if internal_path:
-                    new_path += f"/{internal_path}/{item.get('name', '')}"
+                    new_path += f"/{internal_path}/{name}"
                 else:
-                    new_path += f"/{item.get('name', '')}"
+                    new_path += f"/{name}"
 
                 all_items.append({
                     'id': item['id'],
-                    'name': item.get('name', ''),
+                    'name': name,
                     'size': 0,
                     'webUrl': item.get('webUrl', ''),
                     'driveId': drive_id,
@@ -287,12 +325,11 @@ class MicrosoftGraphService:
                 })
                 total_folders_found += 1
 
-            # Verifica se é arquivo (aceita TODOS os arquivos)
+            # Verifica se é arquivo
             elif 'file' in item:
-                file_name = item.get('name', '')
                 all_items.append({
                     'id': item['id'],
-                    'name': file_name,
+                    'name': name,
                     'size': item.get('size', 0),
                     'webUrl': item.get('webUrl', ''),
                     'downloadUrl': item.get('@microsoft.graph.downloadUrl', ''),
@@ -300,7 +337,7 @@ class MicrosoftGraphService:
                     'driveName': '',
                     'lastModified': item.get('lastModifiedDateTime', ''),
                     'lastModifiedBy': item.get('lastModifiedBy', {}).get('user', {}).get('displayName', ''),
-                    'type': self._get_file_type(file_name),
+                    'type': self._get_file_type(name),
                     'isFolder': False,
                     'parentPath': folder_path
                 })
