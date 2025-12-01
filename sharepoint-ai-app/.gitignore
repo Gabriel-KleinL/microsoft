@@ -31,6 +31,8 @@ wheels/
 # Flask
 instance/
 .webassets-cache
+flask_session/
+backend/flask_session/
 
 # IDE
 .vscode/
