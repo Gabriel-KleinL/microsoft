@@ -452,40 +452,77 @@ class ClaudeAIService:
 
     def summarize_document(
         self,
+        file_name: str,
         file_content: bytes,
         file_type: str,
-        file_name: str,
-        language: str = "pt-BR"
+        detail_level: str = 'medium'
     ) -> Dict:
         """
-        Resume um documento usando Claude AI
+        Resume um documento usando Claude 3
 
         Args:
-            file_content: Conteúdo do arquivo em bytes
-            file_type: Tipo do arquivo
             file_name: Nome do arquivo
-            language: Idioma do resumo (padrão: pt-BR)
+            file_content: Conteúdo do arquivo em bytes
+            file_type: Tipo do arquivo (pdf, word, excel, etc)
+            detail_level: Nível de detalhe (low, medium, high)
 
         Returns:
             Dicionário com resumo e informações
         """
         try:
-            # Extrai texto do documento
-            extracted_text = self.extract_text_from_file(file_content, file_type, file_name)
+            # Extrai texto do arquivo usando o método apropriado para cada tipo
+            if isinstance(file_content, bytes):
+                content_str = self.extract_text_from_file(file_content, file_type, file_name)
 
-            if extracted_text.startswith("Erro"):
-                return {
-                    'success': False,
-                    'error': extracted_text,
-                    'file_name': file_name
-                }
-            
-            messages = []
-            
-            # Base prompt
-            base_prompt = f"""Você é um assistente especializado em análise de documentos.
+                # Se a extração retornou erro, trata como falha
+                if content_str.startswith("Erro"):
+                    return {
+                        'success': False,
+                        'error': content_str,
+                        'file_name': file_name
+                    }
+            else:
+                content_str = str(file_content)
 
-Analise o seguinte documento e forneça:
+            # Define prompt baseado no nível de detalhe
+            if detail_level == 'low':
+                print(f"🎯 Claude: Usando prompt de nível BAIXO (conciso)")
+                system_prompt = """Você é um assistente focado em brevidade.
+Sua tarefa é criar resumos extremamente concisos e diretos.
+
+Diretrizes:
+- Identifique APENAS os 3 pontos mais críticos
+- Use no máximo 3-4 frases
+- Ignore detalhes secundários
+- Seja direto ao ponto
+"""
+            elif detail_level == 'high':
+                print(f"🎯 Claude: Usando prompt de nível ALTO (detalhado)")
+                system_prompt = """Você é um analista detalhista.
+Sua tarefa é criar resumos abrangentes e profundos.
+
+Diretrizes:
+- Cubra todos os aspectos importantes do documento
+- Inclua detalhes técnicos, datas específicas e valores
+- Explique o contexto e as nuances
+- Use formatação estruturada com seções se necessário
+- Não omita informações relevantes
+"""
+            else: # medium (padrão)
+                print(f"🎯 Claude: Usando prompt de nível MÉDIO (equilibrado)")
+                system_prompt = """Você é um assistente especializado em analisar e resumir documentos corporativos.
+Sua tarefa é criar resumos concisos, informativos e bem estruturados.
+
+Diretrizes:
+- Identifique os pontos principais e informações mais relevantes
+- Use formatação markdown para melhor legibilidade
+- Destaque dados importantes, datas, valores e decisões
+- Seja objetivo e direto
+- Use bullets quando apropriado
+"""
+            
+            # User prompt (common across detail levels)
+            user_prompt = f"""Analise o seguinte documento e forneça:
 
 1. **Resumo Executivo**: Um resumo conciso do conteúdo principal (2-3 parágrafos)
 2. **Pontos Principais**: Liste os 5-7 pontos mais importantes do documento
@@ -496,6 +533,8 @@ Documento: {file_name}
 
 Por favor, forneça a análise em português do Brasil, de forma clara e profissional."""
 
+            messages = []
+            
             # Lógica para PDF direto (se extração de texto falhou ou retornou None)
             if (extracted_text is None or len(extracted_text) < 50) and file_type == 'pdf':
                 print("🔄 Usando fallback de PDF direto para Claude (Vision/PDF)...")

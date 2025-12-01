@@ -9,6 +9,7 @@ from config import Config
 from services.microsoft_graph import MicrosoftGraphService
 from services.claude_ai import ClaudeAIService
 from services.openai_service import OpenAIService
+from services.projects_service import ProjectsService
 import os
 import time
 
@@ -45,6 +46,9 @@ graph_service = MicrosoftGraphService(
     client_secret=Config.MICROSOFT_CLIENT_SECRET,
     tenant_id=Config.MICROSOFT_TENANT_ID
 )
+
+# Inicializa serviço de projetos
+projects_service = ProjectsService()
 
 # Inicializa serviços de IA baseado no provedor configurado
 ai_service = None
@@ -210,6 +214,178 @@ def logout():
     """Faz logout do usuário"""
     session.clear()
     return jsonify({'success': True})
+
+
+# ============================================
+# ROTAS DE PROJETOS
+# ============================================
+
+@app.route('/api/projects', methods=['GET'])
+def get_projects():
+    """Retorna todos os projetos do usuário autenticado"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+        projects = projects_service.get_all_projects(user_email)
+
+        return jsonify({
+            'success': True,
+            'projects': projects,
+            'count': len(projects)
+        })
+
+    except Exception as e:
+        print(f"❌ Erro ao buscar projetos: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects', methods=['POST'])
+def create_project():
+    """Cria um novo projeto para o usuário autenticado"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+        project_data = request.json
+
+        if not project_data or 'name' not in project_data:
+            return jsonify({'error': 'Nome do projeto é obrigatório'}), 400
+
+        # Cria projeto
+        project = projects_service.create_project(user_email, project_data)
+
+        if project:
+            return jsonify({
+                'success': True,
+                'project': project
+            }), 201
+        else:
+            return jsonify({'error': 'Falha ao criar projeto'}), 500
+
+    except Exception as e:
+        print(f"❌ Erro ao criar projeto: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<project_id>', methods=['PUT'])
+def update_project(project_id):
+    """Atualiza um projeto existente"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+        updates = request.json
+
+        if not updates:
+            return jsonify({'error': 'Dados de atualização não fornecidos'}), 400
+
+        # Atualiza projeto
+        project = projects_service.update_project(user_email, project_id, updates)
+
+        if project:
+            return jsonify({
+                'success': True,
+                'project': project
+            })
+        else:
+            return jsonify({'error': 'Projeto não encontrado'}), 404
+
+    except Exception as e:
+        print(f"❌ Erro ao atualizar projeto: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<project_id>', methods=['DELETE'])
+def delete_project(project_id):
+    """Deleta um projeto"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+
+        # Deleta projeto
+        success = projects_service.delete_project(user_email, project_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Projeto deletado com sucesso'
+            })
+        else:
+            return jsonify({'error': 'Falha ao deletar projeto'}), 500
+
+    except Exception as e:
+        print(f"❌ Erro ao deletar projeto: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<project_id>/conversations', methods=['POST'])
+def add_conversation(project_id):
+    """Adiciona uma nova conversa a um projeto"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+        conversation_data = request.json
+
+        if not conversation_data or 'id' not in conversation_data:
+            return jsonify({'error': 'Dados da conversa inválidos'}), 400
+
+        # Adiciona conversa
+        project = projects_service.add_conversation(user_email, project_id, conversation_data)
+
+        if project:
+            return jsonify({
+                'success': True,
+                'project': project
+            }), 201
+        else:
+            return jsonify({'error': 'Falha ao adicionar conversa'}), 500
+
+    except Exception as e:
+        print(f"❌ Erro ao adicionar conversa: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<project_id>/conversations/<conversation_id>', methods=['PUT'])
+def update_conversation(project_id, conversation_id):
+    """Atualiza uma conversa de um projeto"""
+    try:
+        # Verifica autenticação
+        if 'user_email' not in session:
+            return jsonify({'error': 'Não autenticado'}), 401
+
+        user_email = session['user_email']
+        updates = request.json
+
+        if not updates:
+            return jsonify({'error': 'Dados de atualização não fornecidos'}), 400
+
+        # Atualiza conversa
+        project = projects_service.update_conversation(user_email, project_id, conversation_id, updates)
+
+        if project:
+            return jsonify({
+                'success': True,
+                'project': project
+            })
+        else:
+            return jsonify({'error': 'Conversa não encontrada'}), 404
+
+    except Exception as e:
+        print(f"❌ Erro ao atualizar conversa: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================
@@ -453,6 +629,14 @@ def summarize_documents():
         # Obtém documentos selecionados
         data = request.json
         document_ids = data.get('document_ids', [])
+        detail_level = data.get('detail_level', 'medium')  # low, medium, high
+
+        print(f"\n{'='*70}")
+        print(f"📊 RESUMO DE DOCUMENTOS")
+        print(f"{'='*70}")
+        print(f"🎚️  Nível de detalhe configurado: {detail_level.upper()}")
+        print(f"📄 Documentos a resumir: {len(document_ids)}")
+        print(f"{'='*70}\n")
 
         if not document_ids:
             return jsonify({'error': 'Nenhum documento selecionado'}), 400
@@ -464,12 +648,12 @@ def summarize_documents():
         for doc_info in document_ids:
             try:
                 # Cria chave de cache para este documento
-                cache_key = f"summary_{doc_info['id']}_{doc_info['driveId']}"
+                cache_key = f"summary_{doc_info['id']}_{doc_info['driveId']}_{detail_level}" # Added detail_level to cache key
 
                 # Tenta obter resumo do cache
                 cached_summary = cache.get(cache_key)
                 if cached_summary:
-                    print(f"✓ Cache hit para resumo: {doc_info['name']}")
+                    print(f"💾 Cache HIT para '{doc_info['name']}' (nível: {detail_level.upper()})")
                     cached_summary['from_cache'] = True
                     summaries.append(cached_summary)
                     cache_hits += 1
@@ -486,7 +670,8 @@ def summarize_documents():
                 summary = get_ai_service().summarize_document(
                     file_content=file_content,
                     file_type=doc_info['type'],
-                    file_name=doc_info['name']
+                    file_name=doc_info['name'],
+                    detail_level=detail_level
                 )
 
                 # Salva no cache (30 minutos)
@@ -569,13 +754,14 @@ def chat():
         data = request.get_json()
         user_message = data.get('message', '').strip()
         conversation_history = data.get('conversation_history', [])
+        project_instructions = data.get('project_instructions', None)  # Instruções personalizadas do projeto
 
         if not user_message:
             return jsonify({'error': 'Mensagem vazia'}), 400
 
         # Log header
         print(f"\n{'='*70}")
-        print(f"║ 🤖 SOFIA - PROCESSAMENTO DE CHAT")
+        print(f"║ 🤖 SOPH-IA - PROCESSAMENTO DE CHAT")
         print(f"{'='*70}")
         print(f"👤 Usuário: {session.get('user_email', 'unknown')}")
         print(f"📝 Pergunta: {user_message}")
@@ -624,7 +810,7 @@ def chat():
         print(f"{'─'*70}")
 
         documents_content = []
-        max_docs_to_analyze = 3
+        max_docs_to_analyze = 2  # Reduzido de 3 para 2 para evitar exceder limite de tokens
         print(f"📊 Documentos a analisar: {min(len(relevant_docs), max_docs_to_analyze)}")
 
         for i, doc in enumerate(relevant_docs[:max_docs_to_analyze], 1):
@@ -649,8 +835,8 @@ def chat():
                     file_type=doc['type']
                 )
 
-                # Limita tamanho do texto
-                max_chars = 10000
+                # Limita tamanho do texto (reduzido de 10000 para 3000 para evitar exceder limite de tokens)
+                max_chars = 3000
                 was_truncated = False
                 if len(extracted_text) > max_chars:
                     extracted_text = extracted_text[:max_chars] + "\n[... conteúdo truncado ...]"
@@ -701,7 +887,8 @@ def chat():
         print(f"✨ ETAPA 4: GERANDO RESPOSTA COM {ai_provider_name.upper()} AI")
         print(f"{'─'*70}")
 
-        system_prompt = f"""Você é Sofia, uma assistente IA especializada em ajudar usuários a encontrar informações no SharePoint.
+        # Constrói system prompt base
+        base_prompt = f"""Você é Soph-IA, uma assistente IA especializada em ajudar usuários a encontrar informações no SharePoint.
 
 CONTEXTO DOS DOCUMENTOS:
 {context_text if context_text else "Nenhum documento relevante encontrado."}
@@ -714,19 +901,37 @@ INSTRUÇÕES:
 - Use formatação markdown quando apropriado (**negrito**, listas, etc.)
 - Mantenha um tom profissional mas amigável"""
 
-        # Constrói histórico de conversação
+        # Adiciona instruções personalizadas do projeto, se houver
+        if project_instructions:
+            print(f"📋 Instruções personalizadas do projeto detectadas")
+            print(f"   Instruções: {project_instructions[:100]}...")
+            system_prompt = f"""{base_prompt}
+
+INSTRUÇÕES PERSONALIZADAS DO PROJETO:
+{project_instructions}
+
+IMPORTANTE: Siga as instruções personalizadas acima ao responder, mas sempre mantendo o foco nas informações dos documentos."""
+        else:
+            system_prompt = base_prompt
+
+        # Constrói histórico de conversação (reduzido para 2 mensagens para evitar exceder limite de tokens)
         messages = []
 
-        # Adiciona mensagens anteriores (se houver)
-        for msg in conversation_history[-4:]:
+        # Adiciona mensagens anteriores (se houver) - máximo 2 mensagens recentes
+        for msg in conversation_history[-2:]:
+            # Valida se a mensagem tem conteúdo
+            content = msg.get('content', '').strip()
+            if not content:
+                continue  # Pula mensagens vazias
+            
             # Aceita tanto 'sender' quanto 'role' para compatibilidade
             role = msg.get('role', msg.get('sender', 'user'))
             if role not in ['user', 'assistant']:
                 role = 'user'
-            
+
             messages.append({
                 "role": role,
-                "content": msg.get('content', '')
+                "content": content
             })
 
         # Adiciona mensagem atual
@@ -763,7 +968,7 @@ INSTRUÇÕES:
             result = ai_service.answer_question(
                 question=user_message,
                 documents_context=context_text,
-                conversation_history=conversation_history
+                conversation_history=messages[:-1]
             )
             ai_response = result['response']
             input_tokens = 0  # OpenAI não retorna tokens facilmente
@@ -779,7 +984,7 @@ INSTRUÇÕES:
         print(f"   💬 Preview: {ai_response[:150].strip()}...")
 
         print(f"\n{'='*70}")
-        print(f"✅ PROCESSAMENTO COMPLETO - SOFIA RESPONDEU!")
+        print(f"✅ PROCESSAMENTO COMPLETO - SOPH-IA RESPONDEU!")
         print(f"{'='*70}\n")
 
         # Prepara fontes para retornar

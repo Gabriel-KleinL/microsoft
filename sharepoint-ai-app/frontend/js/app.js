@@ -66,6 +66,90 @@ const RecentDocumentsManager = {
 };
 
 // ============================================
+// Gerenciador de Tema
+// ============================================
+
+const ThemeManager = {
+    STORAGE_KEY: 'sharepoint_ai_theme',
+
+    /**
+     * Obtém o tema atual (light ou dark)
+     */
+    get() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return stored;
+            }
+            // Se não houver preferência salva, usa preferência do sistema
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return 'dark';
+            }
+            return 'light';
+        } catch (e) {
+            console.warn('Erro ao ler tema:', e);
+            return 'light';
+        }
+    },
+
+    /**
+     * Define o tema (light ou dark)
+     */
+    set(theme) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, theme);
+            this.apply(theme);
+        } catch (e) {
+            console.warn('Erro ao salvar tema:', e);
+        }
+    },
+
+    /**
+     * Aplica o tema ao documento
+     */
+    apply(theme) {
+        if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        this.updateThemeIcon(theme);
+    },
+
+    /**
+     * Alterna entre light e dark
+     */
+    toggle() {
+        const currentTheme = this.get();
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.set(newTheme);
+        return newTheme;
+    },
+
+    /**
+     * Atualiza o ícone do botão de tema
+     */
+    updateThemeIcon(theme) {
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            const icon = themeToggle.querySelector('.material-symbols-outlined');
+            if (icon) {
+                icon.textContent = theme === 'dark' ? 'light_mode' : 'dark_mode';
+            }
+            themeToggle.title = theme === 'dark' ? 'Modo claro' : 'Modo escuro';
+        }
+    },
+
+    /**
+     * Inicializa o tema
+     */
+    init() {
+        const theme = this.get();
+        this.apply(theme);
+    }
+};
+
+// ============================================
 // Cache Local (LocalStorage)
 // ============================================
 
@@ -147,6 +231,9 @@ const CacheManager = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicializa o tema antes de tudo
+    ThemeManager.init();
+
     checkAuthStatus();
     setupEventListeners();
     checkAuthCallback();
@@ -158,6 +245,15 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 
 function setupEventListeners() {
+    // Theme Toggle
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            const newTheme = ThemeManager.toggle();
+            showToast(`Tema ${newTheme === 'dark' ? 'escuro' : 'claro'} ativado`, 'success');
+        });
+    }
+
     // Login/Logout
     document.getElementById('loginBtn').addEventListener('click', handleLogin);
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
@@ -864,6 +960,9 @@ async function handleSummarize() {
 
     try {
         showToast('Processando documentos com IA...', 'info');
+        // Obtém configurações
+        const settings = JSON.parse(localStorage.getItem('sharepoint_ai_settings') || '{}');
+        const summaryLevel = settings.summaryLevel || 'medium';
 
         const response = await fetch('/api/ai/summarize', {
             method: 'POST',
@@ -872,7 +971,8 @@ async function handleSummarize() {
             },
             credentials: 'include',
             body: JSON.stringify({
-                document_ids: AppState.selectedDocuments
+                document_ids: AppState.selectedDocuments,
+                detail_level: summaryLevel
             })
         });
 
@@ -1563,7 +1663,7 @@ function handleExpandAIPanel() {
         <header class="h-16 flex items-center justify-between px-6 border-b border-neutral-200 dark:border-neutral-800 bg-surface-light dark:bg-surface-dark shrink-0">
             <div class="flex items-center gap-3">
                 <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">auto_awesome</span>
-                <h1 class="text-2xl font-semibold">Sof-IA - Chat Expandido</h1>
+                <h1 class="text-2xl font-semibold">Soph-IA - Chat Expandido</h1>
             </div>
             <button id="closeExpandedChat" class="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Fechar">
                 <span class="material-symbols-outlined text-2xl">close</span>

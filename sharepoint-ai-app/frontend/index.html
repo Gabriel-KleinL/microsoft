@@ -167,11 +167,20 @@
                         class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl shrink-0">hub</span>
                     <span class="text-lg font-semibold truncate main-sidebar-text">SharePoint AI</span>
                 </div>
-                <button id="toggleMainSidebar"
-                    class="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors shrink-0"
-                    title="Recolher">
-                    <span class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-xl">chevron_left</span>
-                </button>
+                <div class="flex items-center gap-1 shrink-0">
+                    <button id="themeToggle"
+                        class="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors"
+                        title="Alternar tema">
+                        <span
+                            class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-xl">dark_mode</span>
+                    </button>
+                    <button id="toggleMainSidebar"
+                        class="p-1.5 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors"
+                        title="Recolher">
+                        <span
+                            class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-xl">chevron_left</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Navigation -->
@@ -180,9 +189,9 @@
                     <li>
                         <a href="sofia.html"
                             class="flex items-center gap-3 px-3 py-2 text-sm rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-800 text-gray-600 dark:text-gray-400"
-                            title="Sof-IA">
+                            title="Soph-IA">
                             <span class="material-symbols-outlined text-xl shrink-0">auto_awesome</span>
-                            <span class="main-sidebar-text truncate">Sof-IA</span>
+                            <span class="main-sidebar-text truncate">Soph-IA</span>
                         </a>
                     </li>
                     <li>
@@ -211,6 +220,17 @@
                     </ul>
                 </div>
             </nav>
+
+            <!-- Settings Button -->
+            <div class="px-4 mb-2">
+                <button onclick="openSettingsModal()"
+                    class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors group">
+                    <span
+                        class="material-symbols-outlined group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">settings</span>
+                    <span
+                        class="text-sm font-medium group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors main-sidebar-text">Configurações</span>
+                </button>
+            </div>
 
             <!-- User Info -->
             <div class="p-4 border-t border-neutral-200 dark:border-neutral-800">
@@ -299,7 +319,6 @@
                                         </th>
                                         <th class="p-3 font-semibold">Nome</th>
                                         <th class="p-3 font-semibold">Modificado</th>
-                                        <th class="p-3 font-semibold">Tamanho</th>
                                         <th class="p-3 font-semibold text-right">Ações</th>
                                     </tr>
                                 </thead>
@@ -354,7 +373,7 @@
                         <div class="flex items-center gap-2">
                             <span
                                 class="material-symbols-outlined text-primary-600 dark:text-primary-400">auto_awesome</span>
-                            <h2 class="text-lg font-semibold">Sof-IA</h2>
+                            <h2 class="text-lg font-semibold">Soph-IA</h2>
                         </div>
                         <button id="expandAIPanel" class="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800"
                             title="Expandir chat">
@@ -373,7 +392,7 @@
                                 </div>
                             </div>
                             <div class="flex-1 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-3">
-                                <p class="text-sm mb-2">Olá! Sou a <strong>Sof-IA</strong>, sua assistente de IA para o
+                                <p class="text-sm mb-2">Olá! Sou a <strong>Soph-IA</strong>, sua assistente de IA para o
                                     SharePoint.</p>
                                 <p class="text-sm mb-2">Posso ajudá-lo a encontrar informações em <strong>todos os
                                         documentos</strong> do SharePoint. Experimente perguntar algo como:</p>
@@ -419,6 +438,62 @@
         </div>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onclick="closeSettingsModal()">
+        </div>
+        <div
+            class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 p-6 transition-all">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary-600 dark:text-primary-400">tune</span>
+                    Configurações
+                </h3>
+                <button onclick="closeSettingsModal()"
+                    class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div class="space-y-6">
+                <!-- Summary Level -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Nível de Detalhe do Resumo
+                    </label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        Escolha o quão detalhado você quer que os resumos dos documentos sejam.
+                    </p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <button onclick="SettingsManager.setSummaryLevel('low')" id="summaryLevel_low"
+                            class="px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all flex flex-col items-center gap-2 hover:border-primary-200 dark:hover:border-primary-800">
+                            <span class="material-symbols-outlined text-xl">short_text</span>
+                            Baixo
+                        </button>
+                        <button onclick="SettingsManager.setSummaryLevel('medium')" id="summaryLevel_medium"
+                            class="px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all flex flex-col items-center gap-2 hover:border-primary-200 dark:hover:border-primary-800">
+                            <span class="material-symbols-outlined text-xl">notes</span>
+                            Médio
+                        </button>
+                        <button onclick="SettingsManager.setSummaryLevel('high')" id="summaryLevel_high"
+                            class="px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all flex flex-col items-center gap-2 hover:border-primary-200 dark:hover:border-primary-800">
+                            <span class="material-symbols-outlined text-xl">description</span>
+                            Alto
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 flex justify-end">
+                <button onclick="closeSettingsModal()"
+                    class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors">
+                    Concluído
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/settings.js"></script>
     <script src="js/app.js"></script>
 </body>
 

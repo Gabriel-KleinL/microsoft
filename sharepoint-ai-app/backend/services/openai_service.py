@@ -64,7 +64,8 @@ class OpenAIService:
         self,
         file_name: str,
         file_content: bytes,
-        file_type: str
+        file_type: str,
+        detail_level: str = 'medium'
     ) -> Dict:
         """
         Resume um documento usando ChatGPT
@@ -73,6 +74,7 @@ class OpenAIService:
             file_name: Nome do arquivo
             file_content: Conteúdo do arquivo em bytes
             file_type: Tipo do arquivo (pdf, word, excel, etc)
+            detail_level: Nível de detalhe (low, medium, high)
 
         Returns:
             Dicionário com resumo e informações
@@ -92,7 +94,33 @@ class OpenAIService:
             else:
                 content_str = str(file_content)
 
-            system_prompt = """Você é um assistente especializado em analisar e resumir documentos corporativos.
+            # Define prompt baseado no nível de detalhe
+            if detail_level == 'low':
+                print(f"🎯 OpenAI: Usando prompt de nível BAIXO (conciso)")
+                system_prompt = """Você é um assistente focado em brevidade.
+Sua tarefa é criar resumos extremamente concisos e diretos.
+
+Diretrizes:
+- Identifique APENAS os 3 pontos mais críticos
+- Use no máximo 3-4 frases
+- Ignore detalhes secundários
+- Seja direto ao ponto
+"""
+            elif detail_level == 'high':
+                print(f"🎯 OpenAI: Usando prompt de nível ALTO (detalhado)")
+                system_prompt = """Você é um analista detalhista.
+Sua tarefa é criar resumos abrangentes e profundos.
+
+Diretrizes:
+- Cubra todos os aspectos importantes do documento
+- Inclua detalhes técnicos, datas específicas e valores
+- Explique o contexto e as nuances
+- Use formatação estruturada com seções se necessário
+- Não omita informações relevantes
+"""
+            else: # medium (padrão)
+                print(f"🎯 OpenAI: Usando prompt de nível MÉDIO (equilibrado)")
+                system_prompt = """Você é um assistente especializado em analisar e resumir documentos corporativos.
 Sua tarefa é criar resumos concisos, informativos e bem estruturados.
 
 Diretrizes:
@@ -211,7 +239,7 @@ Crie um resumo executivo que:
         Returns:
             Dict com a resposta e metadados
         """
-        system_prompt = f"""Você é Sofia, uma assistente de IA especializada em ajudar usuários a encontrar informações em documentos do SharePoint.
+        system_prompt = f"""Você é Soph-IA, uma assistente de IA especializada em ajudar usuários a encontrar informações em documentos do SharePoint.
 
 **Contexto dos Documentos:**
 {documents_context}

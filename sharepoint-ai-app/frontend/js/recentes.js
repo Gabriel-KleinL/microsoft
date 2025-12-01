@@ -2,12 +2,100 @@
  * Recentes Page - JavaScript
  */
 
+// ============================================
+// Gerenciador de Tema
+// ============================================
+
+const ThemeManager = {
+    STORAGE_KEY: 'sharepoint_ai_theme',
+
+    /**
+     * Obtém o tema atual (light ou dark)
+     */
+    get() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return stored;
+            }
+            // Se não houver preferência salva, usa preferência do sistema
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return 'dark';
+            }
+            return 'light';
+        } catch (e) {
+            console.warn('Erro ao ler tema:', e);
+            return 'light';
+        }
+    },
+
+    /**
+     * Define o tema (light ou dark)
+     */
+    set(theme) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, theme);
+            this.apply(theme);
+        } catch (e) {
+            console.warn('Erro ao salvar tema:', e);
+        }
+    },
+
+    /**
+     * Aplica o tema ao documento
+     */
+    apply(theme) {
+        if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        this.updateThemeIcon(theme);
+    },
+
+    /**
+     * Alterna entre light e dark
+     */
+    toggle() {
+        const currentTheme = this.get();
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.set(newTheme);
+        return newTheme;
+    },
+
+    /**
+     * Atualiza o ícone do botão de tema
+     */
+    updateThemeIcon(theme) {
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            const icon = themeToggle.querySelector('.material-symbols-outlined');
+            if (icon) {
+                icon.textContent = theme === 'dark' ? 'light_mode' : 'dark_mode';
+            }
+            themeToggle.title = theme === 'dark' ? 'Modo claro' : 'Modo escuro';
+        }
+    },
+
+    /**
+     * Inicializa o tema
+     */
+    init() {
+        const theme = this.get();
+        this.apply(theme);
+    }
+};
+
 // Importa o RecentDocumentsManager do app.js (assumindo que está disponível globalmente)
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicializa o tema antes de tudo
+    ThemeManager.init();
+
     checkAuthStatus();
     loadRecentDocuments();
     setupSidebarToggle();
+    setupThemeToggle();
 
     // Event listener para botão de limpar histórico
     document.getElementById('clearHistoryBtn').addEventListener('click', handleClearHistory);
@@ -447,4 +535,18 @@ function setupSidebarToggle() {
             toggleBtn.querySelector('.material-symbols-outlined').textContent = 'chevron_left';
         }
     });
+}
+
+// ============================================
+// Theme Toggle
+// ============================================
+
+function setupThemeToggle() {
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            const newTheme = ThemeManager.toggle();
+            showToast(`Tema ${newTheme === 'dark' ? 'escuro' : 'claro'} ativado`, 'success');
+        });
+    }
 }

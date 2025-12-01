@@ -1,5 +1,5 @@
 /**
- * Sof-IA - Chat Interface
+ * Soph-IA - Chat Interface
  * Sistema de conversas e projetos com IA
  */
 
@@ -105,85 +105,453 @@ const ConversationsManager = {
 };
 
 // ============================================
-// Gerenciador de Projetos (localStorage)
+// Gerenciador de Projetos (Backend + Cache Local)
 // ============================================
 
 const ProjectsManager = {
     STORAGE_KEY: 'sofia_projects',
 
-    getAll() {
+    // Métodos de cache local
+    _getLocalCache() {
         try {
             const stored = localStorage.getItem(this.STORAGE_KEY);
-            // Verifica se stored é null, undefined, ou a string "undefined"
             if (!stored || stored === 'undefined' || stored === 'null') {
                 return [];
             }
             return JSON.parse(stored);
         } catch (e) {
-            console.warn('Erro ao ler projetos:', e);
-            // Limpa localStorage corrompido
+            console.warn('Erro ao ler cache de projetos:', e);
             localStorage.removeItem(this.STORAGE_KEY);
             return [];
         }
     },
 
-    save(projects) {
+    _saveLocalCache(projects) {
         try {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
         } catch (e) {
-            console.warn('Erro ao salvar projetos:', e);
+            console.warn('Erro ao salvar cache de projetos:', e);
         }
     },
 
-    create(name, description = '', instructions = '') {
-        const project = {
+    // Carrega projetos do servidor
+    async loadFromServer() {
+        try {
+            const response = await fetch('/api/projects', {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Atualiza cache local
+                this._saveLocalCache(data.projects);
+                return data.projects;
+            }
+
+            return [];
+        } catch (error) {
+            console.warn('Erro ao carregar projetos do servidor, usando cache local:', error);
+            return this._getLocalCache();
+        }
+    },
+
+    // Retorna projetos (usa cache local para leitura rápida)
+    getAll() {
+        return this._getLocalCache();
+    },
+
+    // Sincroniza com cache local (método legado para compatibilidade)
+    save(projects) {
+        this._saveLocalCache(projects);
+    },
+
+    // Cria projeto no servidor
+    async create(name, description = '', instructions = '') {
+        // Cria primeira conversa padrão
+        const firstConversation = {
+            id: Date.now().toString() + '_conv1',
+            title: 'Conversa Principal',
+            messages: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        const projectData = {
             id: Date.now().toString(),
             name: name,
             description: description,
             instructions: instructions,
             documents: [],
+            conversations: [firstConversation],
+            activeConversationId: firstConversation.id,
             notes: '',
-            aiModel: 'claude', // Modelo padrão
+            aiModel: 'claude',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
 
-        const projects = this.getAll();
-        projects.unshift(project);
-        this.save(projects);
+        try {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(projectData)
+            });
 
-        return project;
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Atualiza cache local
+                const projects = this._getLocalCache();
+                projects.unshift(data.project);
+                this._saveLocalCache(projects);
+                return data.project;
+            }
+
+            throw new Error('Falha ao criar projeto');
+        } catch (error) {
+            console.error('Erro ao criar projeto no servidor:', error);
+            // Fallback: salva localmente
+            const projects = this._getLocalCache();
+            projects.unshift(projectData);
+            this._saveLocalCache(projects);
+            return projectData;
+        }
     },
 
-    update(projectId, updates) {
-        const projects = this.getAll();
-        const index = projects.findIndex(p => p.id === projectId);
+    // Atualiza projeto no servidor
+    async update(projectId, updates) {
+        try {
+            const response = await fetch(`/api/projects/${projectId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(updates)
+            });
 
-        if (index !== -1) {
-            projects[index] = {
-                ...projects[index],
-                ...updates,
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Atualiza cache local
+                const projects = this._getLocalCache();
+                const index = projects.findIndex(p => p.id === projectId);
+                if (index !== -1) {
+                    projects[index] = data.project;
+                    this._saveLocalCache(projects);
+                }
+                return data.project;
+            }
+
+            throw new Error('Falha ao atualizar projeto');
+        } catch (error) {
+            console.error('Erro ao atualizar projeto no servidor:', error);
+            // Fallback: atualiza localmente
+            const projects = this._getLocalCache();
+            const index = projects.findIndex(p => p.id === projectId);
+            if (index !== -1) {
+                projects[index] = {
+                    ...projects[index],
+                    ...updates,
+                    updatedAt: new Date().toISOString()
+                };
+                this._saveLocalCache(projects);
+                return projects[index];
+            }
+            return null;
+        }
+    },
+
+    // Deleta projeto no servidor
+    async delete(projectId) {
+        try {
+            const response = await fetch(`/api/projects/${projectId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            // Atualiza cache local
+            const projects = this._getLocalCache();
+            const filtered = projects.filter(p => p.id !== projectId);
+            this._saveLocalCache(filtered);
+        } catch (error) {
+            console.error('Erro ao deletar projeto no servidor:', error);
+            // Fallback: deleta localmente
+            const projects = this._getLocalCache();
+            const filtered = projects.filter(p => p.id !== projectId);
+            this._saveLocalCache(filtered);
+        }
+    },
+
+    // Métodos para gerenciar conversas
+    async addConversation(projectId, title = 'Nova Conversa') {
+        const projects = this._getLocalCache();
+        const project = projects.find(p => p.id === projectId);
+
+        if (!project) return null;
+
+        // Migra projeto antigo (com messages) para novo formato (com conversations)
+        if (project.messages && !project.conversations) {
+            project.conversations = [{
+                id: Date.now().toString() + '_conv1',
+                title: 'Conversa Principal',
+                messages: project.messages || [],
+                createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
-            };
-            this.save(projects);
-            return projects[index];
+            }];
+            project.activeConversationId = project.conversations[0].id;
+            delete project.messages;
         }
 
-        return null;
+        if (!project.conversations) project.conversations = [];
+
+        const newConversation = {
+            id: Date.now().toString() + '_conv',
+            title: title,
+            messages: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        try {
+            const response = await fetch(`/api/projects/${projectId}/conversations`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(newConversation)
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Atualiza cache local com projeto completo
+                const projectIndex = projects.findIndex(p => p.id === projectId);
+                if (projectIndex !== -1) {
+                    projects[projectIndex] = data.project;
+                    this._saveLocalCache(projects);
+                }
+                return newConversation;
+            }
+
+            throw new Error('Falha ao adicionar conversa');
+        } catch (error) {
+            console.error('Erro ao adicionar conversa no servidor:', error);
+            // Fallback: adiciona localmente
+            project.conversations.push(newConversation);
+            project.activeConversationId = newConversation.id;
+            project.updatedAt = new Date().toISOString();
+            this._saveLocalCache(projects);
+            return newConversation;
+        }
     },
 
-    delete(projectId) {
-        const projects = this.getAll();
-        const filtered = projects.filter(p => p.id !== projectId);
-        this.save(filtered);
+    async setActiveConversation(projectId, conversationId) {
+        const projects = this._getLocalCache();
+        const project = projects.find(p => p.id === projectId);
+
+        if (!project) return false;
+
+        // Atualiza localmente primeiro (para UI rápida)
+        project.activeConversationId = conversationId;
+        project.updatedAt = new Date().toISOString();
+        this._saveLocalCache(projects);
+
+        // Envia para o servidor em background
+        try {
+            await fetch(`/api/projects/${projectId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ activeConversationId: conversationId })
+            });
+        } catch (error) {
+            console.warn('Erro ao atualizar conversa ativa no servidor:', error);
+        }
+
+        return true;
+    },
+
+    getActiveConversation(project) {
+        // Migra projeto antigo se necessário
+        if (project.messages && !project.conversations) {
+            return {
+                id: 'legacy',
+                title: 'Conversa Principal',
+                messages: project.messages,
+                createdAt: project.createdAt,
+                updatedAt: project.updatedAt
+            };
+        }
+
+        if (!project.conversations || project.conversations.length === 0) {
+            return null;
+        }
+
+        const activeId = project.activeConversationId || project.conversations[0].id;
+        return project.conversations.find(c => c.id === activeId) || project.conversations[0];
+    },
+
+    async updateConversation(projectId, conversationId, updates) {
+        const projects = this._getLocalCache();
+        const project = projects.find(p => p.id === projectId);
+
+        if (!project || !project.conversations) return null;
+
+        const convIndex = project.conversations.findIndex(c => c.id === conversationId);
+        if (convIndex === -1) return null;
+
+        // Atualiza localmente primeiro (para UI rápida)
+        project.conversations[convIndex] = {
+            ...project.conversations[convIndex],
+            ...updates,
+            updatedAt: new Date().toISOString()
+        };
+        project.updatedAt = new Date().toISOString();
+        this._saveLocalCache(projects);
+
+        // Envia para o servidor em background
+        try {
+            const response = await fetch(`/api/projects/${projectId}/conversations/${conversationId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(updates)
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    // Atualiza cache com resposta do servidor
+                    const projectIndex = projects.findIndex(p => p.id === projectId);
+                    if (projectIndex !== -1) {
+                        projects[projectIndex] = data.project;
+                        this._saveLocalCache(projects);
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Erro ao atualizar conversa no servidor:', error);
+        }
+
+        return project.conversations[convIndex];
     }
 };
+
+// ============================================
+// Gerenciador de Tema
+// ============================================
+
+const ThemeManager = {
+    STORAGE_KEY: 'sharepoint_ai_theme',
+
+    /**
+     * Obtém o tema atual (light ou dark)
+     */
+    get() {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                return stored;
+            }
+            // Se não houver preferência salva, usa preferência do sistema
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return 'dark';
+            }
+            return 'light';
+        } catch (e) {
+            console.warn('Erro ao ler tema:', e);
+            return 'light';
+        }
+    },
+
+    /**
+     * Define o tema (light ou dark)
+     */
+    set(theme) {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, theme);
+            this.apply(theme);
+        } catch (e) {
+            console.warn('Erro ao salvar tema:', e);
+        }
+    },
+
+    /**
+     * Aplica o tema ao documento
+     */
+    apply(theme) {
+        if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        this.updateThemeIcon(theme);
+    },
+
+    /**
+     * Alterna entre light e dark
+     */
+    toggle() {
+        const currentTheme = this.get();
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.set(newTheme);
+        return newTheme;
+    },
+
+    /**
+     * Atualiza o ícone do botão de tema
+     */
+    updateThemeIcon(theme) {
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            const icon = themeToggle.querySelector('.material-symbols-outlined');
+            if (icon) {
+                icon.textContent = theme === 'dark' ? 'light_mode' : 'dark_mode';
+            }
+            themeToggle.title = theme === 'dark' ? 'Modo claro' : 'Modo escuro';
+        }
+    },
+
+    /**
+     * Inicializa o tema
+     */
+    init() {
+        const theme = this.get();
+        this.apply(theme);
+    }
+};
+
+// SettingsManager movido para js/settings.js
 
 // ============================================
 // Inicialização
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicializa o tema antes de tudo
+    ThemeManager.init();
+    SettingsManager.init();
+
     checkAuthStatus();
     loadConversations();
     loadProjects();
@@ -234,6 +602,15 @@ async function handleLogout() {
 // ============================================
 
 function setupEventListeners() {
+    // Theme Toggle
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            const newTheme = ThemeManager.toggle();
+            showToast(`Tema ${newTheme === 'dark' ? 'escuro' : 'claro'} ativado`, 'success');
+        });
+    }
+
     // Novo chat
     const newChatBtn = document.getElementById('newChatBtn');
     if (newChatBtn) {
@@ -389,7 +766,7 @@ function handleNewChat() {
 
     renderConversations();
     showWelcomeState();
-    document.getElementById('chatTitle').textContent = 'Sof-IA';
+    document.getElementById('chatTitle').textContent = 'Soph-IA';
 }
 
 function loadConversation(conversationId) {
@@ -659,9 +1036,19 @@ function removeTypingIndicator() {
 // Projetos
 // ============================================
 
-function loadProjects() {
+async function loadProjects() {
+    // Carrega do cache local primeiro (para UI rápida)
     SofiaState.projects = ProjectsManager.getAll();
     renderProjects();
+
+    // Depois sincroniza com servidor em background
+    try {
+        const serverProjects = await ProjectsManager.loadFromServer();
+        SofiaState.projects = serverProjects;
+        renderProjects();
+    } catch (error) {
+        console.warn('Erro ao sincronizar projetos com servidor:', error);
+    }
 }
 
 function renderProjects() {
@@ -784,7 +1171,7 @@ function showCreateProjectModal() {
     setTimeout(() => document.getElementById('newProjectName').focus(), 100);
 }
 
-function createNewProject() {
+async function createNewProject() {
     const name = document.getElementById('newProjectName').value.trim();
     const description = document.getElementById('newProjectDescription').value.trim();
 
@@ -794,7 +1181,8 @@ function createNewProject() {
         return;
     }
 
-    const project = ProjectsManager.create(name, description);
+    // Cria projeto no servidor
+    const project = await ProjectsManager.create(name, description);
     SofiaState.projects.unshift(project);
     renderProjects();
 
@@ -826,14 +1214,19 @@ function openProjectView(project) {
             </div>
             
             <div class="flex-1 overflow-y-auto p-4">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversas</h3>
-                    <button onclick="newProjectConversation('${project.id}')" class="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors">
-                        <span class="material-symbols-outlined text-gray-600 dark:text-gray-400 text-lg">add</span>
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-neutral-200 dark:border-neutral-700">
+                    <div>
+                        <h3 class="text-base font-bold text-gray-900 dark:text-gray-100">Conversas do Projeto</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Cada conversa mantém seu próprio histórico</p>
+                    </div>
+                    <button onclick="newProjectConversation('${project.id}')"
+                            class="flex items-center gap-1 px-3 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg transition-colors shadow-sm">
+                        <span class="material-symbols-outlined text-lg">add</span>
+                        <span class="text-xs font-medium">Nova</span>
                     </button>
                 </div>
-                <div id="projectConversationsList" class="space-y-2">
-                    <!-- Conversas do projeto -->
+                <div id="projectConversationsList" class="space-y-4">
+                    <!-- Conversas do projeto (independentes) -->
                 </div>
             </div>
         </div>
@@ -941,6 +1334,163 @@ function openProjectView(project) {
 
     // Setup project chat
     setupProjectChat(project.id);
+
+    // Renderiza lista de conversas
+    renderProjectConversations(project);
+
+    // Carrega mensagens salvas do projeto
+    loadProjectMessages(project);
+}
+
+function renderProjectConversations(project) {
+    const listContainer = document.getElementById('projectConversationsList');
+    if (!listContainer) return;
+
+    // Migra projeto antigo se necessário
+    if (project.messages && !project.conversations) {
+        ProjectsManager.addConversation(project.id, 'Conversa Principal');
+        // Recarrega projeto atualizado
+        project = SofiaState.projects.find(p => p.id === project.id);
+    }
+
+    const conversations = project.conversations || [];
+    const activeConvId = project.activeConversationId;
+
+    if (conversations.length === 0) {
+        listContainer.innerHTML = `
+            <p class="text-xs text-gray-500 dark:text-gray-400 text-center py-4">Nenhuma conversa ainda</p>
+        `;
+        return;
+    }
+
+    listContainer.innerHTML = conversations.map(conv => {
+        const isActive = conv.id === activeConvId;
+        const messageCount = conv.messages?.length || 0;
+        const lastUpdate = new Date(conv.updatedAt);
+        const timeStr = formatRelativeTime(lastUpdate);
+
+        return `
+            <div onclick="switchProjectConversation('${project.id}', '${conv.id}')"
+                 class="group relative p-4 rounded-xl cursor-pointer transition-all duration-200 border-2 ${isActive
+                ? 'bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/40 dark:to-primary-800/30 border-primary-500 dark:border-primary-400 shadow-md'
+                : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-lg'
+            }">
+                <!-- Ícone e Badge Ativo -->
+                <div class="flex items-center gap-3 mb-2">
+                    <div class="${isActive ? 'bg-primary-500 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-400'} p-2 rounded-lg">
+                        <span class="material-symbols-outlined text-lg">chat_bubble</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold ${isActive ? 'text-primary-900 dark:text-primary-100' : 'text-gray-900 dark:text-gray-100'} truncate">
+                            ${conv.title}
+                        </p>
+                    </div>
+                    ${isActive ? `
+                        <div class="flex items-center gap-1 bg-primary-600 dark:bg-primary-500 text-white px-2 py-1 rounded-full">
+                            <span class="material-symbols-outlined text-xs">check_circle</span>
+                            <span class="text-xs font-medium">Ativa</span>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Informações -->
+                <div class="flex items-center gap-3 text-xs ${isActive ? 'text-primary-700 dark:text-primary-300' : 'text-gray-500 dark:text-gray-400'}">
+                    <div class="flex items-center gap-1">
+                        <span class="material-symbols-outlined text-sm">forum</span>
+                        <span>${messageCount} ${messageCount === 1 ? 'mensagem' : 'mensagens'}</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span class="material-symbols-outlined text-sm">schedule</span>
+                        <span>${timeStr}</span>
+                    </div>
+                </div>
+
+                ${!isActive ? `
+                    <div class="absolute inset-0 bg-primary-500 opacity-0 group-hover:opacity-5 rounded-xl transition-opacity duration-200"></div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function switchProjectConversation(projectId, conversationId) {
+    // Atualiza projeto
+    ProjectsManager.setActiveConversation(projectId, conversationId);
+
+    // Recarrega projeto do state
+    const project = SofiaState.projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    // Limpa mensagens atuais
+    const messagesContainer = document.getElementById('projectChatMessages');
+    messagesContainer.innerHTML = `
+        <div id="projectWelcomeState" class="text-center py-12">
+            <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-6xl mb-4">folder_special</span>
+            <h3 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Bem-vindo ao ${project.name}</h3>
+            <p class="text-gray-600 dark:text-gray-400">Faça perguntas sobre este projeto e use os arquivos de referência</p>
+        </div>
+    `;
+
+    // Recarrega mensagens da nova conversa ativa
+    loadProjectMessages(project);
+
+    // Atualiza lista de conversas (marca ativa)
+    renderProjectConversations(project);
+}
+
+function loadProjectMessages(project) {
+    // Obtém conversa ativa
+    const activeConversation = ProjectsManager.getActiveConversation(project);
+
+    if (!activeConversation || !activeConversation.messages || activeConversation.messages.length === 0) {
+        return; // Sem mensagens salvas, mostra welcome state
+    }
+
+    // Remove welcome state
+    const welcomeState = document.getElementById('projectWelcomeState');
+    if (welcomeState) {
+        welcomeState.remove();
+    }
+
+    const messagesContainer = document.getElementById('projectChatMessages');
+
+    // Renderiza cada mensagem salva da conversa ativa
+    activeConversation.messages.forEach(msg => {
+        const messageDiv = document.createElement('div');
+
+        if (msg.role === 'user') {
+            messageDiv.className = 'flex gap-4 justify-end';
+            messageDiv.innerHTML = `
+                <div class="flex-1 max-w-3xl">
+                    <div class="bg-primary-600 text-white rounded-2xl px-4 py-3 ml-auto">
+                        <p class="text-sm whitespace-pre-wrap">${escapeHtml(msg.content)}</p>
+                    </div>
+                </div>
+            `;
+        } else {
+            messageDiv.className = 'flex gap-4';
+            messageDiv.innerHTML = `
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-lg">smart_toy</span>
+                    </div>
+                </div>
+                <div class="flex-1 max-w-3xl">
+                    <div class="bg-neutral-100 dark:bg-neutral-800 rounded-2xl px-4 py-3">
+                        <div class="prose dark:prose-invert max-w-none text-sm">
+                            ${formatMarkdown(msg.content)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        messagesContainer.appendChild(messageDiv);
+    });
+
+    // Scroll para o final
+    const messagesArea = document.getElementById('projectChatMessagesArea');
+    messagesArea.scrollTop = messagesArea.scrollHeight;
 }
 
 function renderProjectFilesList(documents) {
@@ -994,17 +1544,179 @@ function setupProjectChat(projectId) {
     }
 }
 
-function sendProjectMessage(projectId) {
+async function sendProjectMessage(projectId) {
     const input = document.getElementById('projectChatInput');
     const message = input.value.trim();
 
     if (!message) return;
 
-    // TODO: Implementar envio de mensagem do projeto
-    console.log('Enviar mensagem do projeto:', projectId, message);
-
+    // Limpa input
     input.value = '';
     input.style.height = 'auto';
+
+    // Obtém projeto
+    const project = SofiaState.projects.find(p => p.id === projectId);
+    if (!project) {
+        console.error('Projeto não encontrado:', projectId);
+        return;
+    }
+
+    // Remove welcome state se existir
+    const welcomeState = document.getElementById('projectWelcomeState');
+    if (welcomeState) {
+        welcomeState.remove();
+    }
+
+    const messagesContainer = document.getElementById('projectChatMessages');
+
+    // Obtém conversa ativa
+    const activeConversation = ProjectsManager.getActiveConversation(project);
+    if (!activeConversation) {
+        console.error('Nenhuma conversa ativa encontrada');
+        return;
+    }
+
+    // Salva mensagem do usuário na conversa ativa
+    const userMessage = {
+        role: 'user',
+        content: message,
+        timestamp: new Date().toISOString()
+    };
+    activeConversation.messages.push(userMessage);
+    ProjectsManager.updateConversation(projectId, activeConversation.id, {
+        messages: activeConversation.messages
+    });
+
+    // Adiciona mensagem do usuário
+    const userMessageDiv = document.createElement('div');
+    userMessageDiv.className = 'flex gap-4 justify-end';
+    userMessageDiv.innerHTML = `
+        <div class="flex-1 max-w-3xl">
+            <div class="bg-primary-600 text-white rounded-2xl px-4 py-3 ml-auto">
+                <p class="text-sm whitespace-pre-wrap">${escapeHtml(message)}</p>
+            </div>
+        </div>
+    `;
+    messagesContainer.appendChild(userMessageDiv);
+
+    // Scroll para o final
+    const messagesArea = document.getElementById('projectChatMessagesArea');
+    messagesArea.scrollTop = messagesArea.scrollHeight;
+
+    // Mostra typing indicator
+    const typingDiv = document.createElement('div');
+    typingDiv.id = 'projectTypingIndicator';
+    typingDiv.className = 'flex gap-4';
+    typingDiv.innerHTML = `
+        <div class="flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
+                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-lg">smart_toy</span>
+            </div>
+        </div>
+        <div class="flex-1 max-w-3xl">
+            <div class="bg-neutral-100 dark:bg-neutral-800 rounded-2xl px-4 py-3">
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    `;
+    messagesContainer.appendChild(typingDiv);
+    messagesArea.scrollTop = messagesArea.scrollHeight;
+
+    try {
+        // Envia mensagem para API com histórico da conversa ativa
+        const response = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                message: message,
+                conversation_history: activeConversation.messages.slice(-10) || [], // Últimas 10 mensagens
+                project_instructions: project.instructions || null // Instruções personalizadas do projeto
+            })
+        });
+
+        // Remove typing indicator
+        typingDiv.remove();
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Erro na resposta do servidor');
+        }
+
+        const data = await response.json();
+
+        // Salva resposta da IA na conversa ativa
+        const aiMessage = {
+            role: 'assistant',
+            content: data.response,
+            timestamp: new Date().toISOString()
+        };
+        activeConversation.messages.push(aiMessage);
+        ProjectsManager.updateConversation(projectId, activeConversation.id, {
+            messages: activeConversation.messages
+        });
+
+        // Adiciona resposta da IA
+        const aiMessageDiv = document.createElement('div');
+        aiMessageDiv.className = 'flex gap-4';
+        aiMessageDiv.innerHTML = `
+            <div class="flex-shrink-0">
+                <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-lg">smart_toy</span>
+                </div>
+            </div>
+            <div class="flex-1 max-w-3xl">
+                <div class="bg-neutral-100 dark:bg-neutral-800 rounded-2xl px-4 py-3">
+                    <div class="prose dark:prose-invert max-w-none text-sm">
+                        ${formatMarkdown(data.response)}
+                    </div>
+                </div>
+            </div>
+        `;
+        messagesContainer.appendChild(aiMessageDiv);
+
+        // Scroll para o final
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+    } catch (error) {
+        console.error('Erro ao enviar mensagem:', error);
+
+        // Remove typing indicator
+        if (typingDiv.parentNode) {
+            typingDiv.remove();
+        }
+
+        // Se erro 401, redireciona para login
+        if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+            alert('Sua sessão expirou. Por favor, faça login novamente.');
+            window.location.href = '/';
+            return;
+        }
+
+        // Mostra mensagem de erro
+        const errorMessageDiv = document.createElement('div');
+        errorMessageDiv.className = 'flex gap-4';
+        errorMessageDiv.innerHTML = `
+            <div class="flex-shrink-0">
+                <div class="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-red-600 dark:text-red-400 text-lg">error</span>
+                </div>
+            </div>
+            <div class="flex-1 max-w-3xl">
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
+                    <p class="text-sm text-red-800 dark:text-red-200">Desculpe, houve um erro ao processar sua mensagem. Por favor, tente novamente.</p>
+                </div>
+            </div>
+        `;
+        messagesContainer.appendChild(errorMessageDiv);
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
 }
 
 function closeProjectView() {
@@ -1016,15 +1728,57 @@ function closeProjectView() {
 }
 
 function newProjectConversation(projectId) {
-    // TODO: Criar nova conversa no projeto
-    console.log('Nova conversa no projeto:', projectId);
+    const project = SofiaState.projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    // Cria nova conversa
+    const newConv = ProjectsManager.addConversation(projectId, `Conversa ${(project.conversations?.length || 0) + 1}`);
+
+    if (newConv) {
+        // Limpa mensagens atuais
+        const messagesContainer = document.getElementById('projectChatMessages');
+        messagesContainer.innerHTML = `
+            <div id="projectWelcomeState" class="text-center py-12">
+                <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-6xl mb-4">folder_special</span>
+                <h3 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Nova Conversa</h3>
+                <p class="text-gray-600 dark:text-gray-400">Comece uma nova conversa sobre este projeto</p>
+            </div>
+        `;
+
+        // Recarrega lista de conversas
+        renderProjectConversations(project);
+
+        showToast('Nova conversa criada!', 'success');
+    }
 }
 
 function clearProjectChat(projectId) {
-    if (confirm('Deseja limpar todas as mensagens deste chat?')) {
-        // TODO: Limpar chat do projeto
-        console.log('Limpar chat do projeto:', projectId);
+    if (!confirm('Deseja limpar todas as mensagens desta conversa?')) {
+        return;
     }
+
+    // Encontra o projeto
+    const project = SofiaState.projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    // Obtém conversa ativa
+    const activeConversation = ProjectsManager.getActiveConversation(project);
+    if (!activeConversation) return;
+
+    // Limpa as mensagens da conversa ativa
+    ProjectsManager.updateConversation(projectId, activeConversation.id, { messages: [] });
+
+    // Limpa UI
+    const messagesContainer = document.getElementById('projectChatMessages');
+    messagesContainer.innerHTML = `
+        <div id="projectWelcomeState" class="text-center py-12">
+            <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-6xl mb-4">folder_special</span>
+            <h3 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Bem-vindo ao ${project.name}</h3>
+            <p class="text-gray-600 dark:text-gray-400">Faça perguntas sobre este projeto e use os arquivos de referência</p>
+        </div>
+    `;
+
+    showToast('Conversa limpa com sucesso!', 'success');
 }
 
 function editProjectInstructions(projectId) {
@@ -1522,4 +2276,36 @@ function selectModel(model) {
     }
 
     console.log('Modelo selecionado:', model);
+}
+
+// ============================================
+// Toast Notifications
+// ============================================
+
+function showToast(message, type = 'info') {
+    // Cria elemento de toast
+    const toast = document.createElement('div');
+    toast.className = `fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-slide-up transition-all duration-300 ${type === 'success' ? 'bg-green-600 text-white' :
+        type === 'error' ? 'bg-red-600 text-white' :
+            type === 'warning' ? 'bg-yellow-600 text-white' :
+                'bg-blue-600 text-white'
+        }`;
+
+    const icon = type === 'success' ? 'check_circle' :
+        type === 'error' ? 'error' :
+            type === 'warning' ? 'warning' :
+                'info';
+
+    toast.innerHTML = `
+        <span class="material-symbols-outlined text-xl">${icon}</span>
+        <span class="font-medium">${message}</span>
+    `;
+
+    document.body.appendChild(toast);
+
+    // Remove após 3 segundos
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }
